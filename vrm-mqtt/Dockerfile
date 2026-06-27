@@ -24,7 +24,7 @@ RUN apk add --no-cache nodejs npm
 # Build the Node.js bridge application
 WORKDIR /app
 COPY app/package.json app/package-lock.json* ./
-RUN npm ci --omit=dev
+RUN npm ci
 COPY app/ ./
 RUN npm run build \
     && npm prune --omit=dev \
@@ -39,5 +39,5 @@ RUN chmod a+x /usr/bin/my_program \
 LABEL \
     org.opencontainers.image.title="Home Assistant App: VRM MQTT" \
     org.opencontainers.image.description="Bridges Victron VRM installations to the Home Assistant Mosquitto broker." \
-    org.opencontainers.image.source="https://github.com/KaiGrassnick/vrm-mqtt-apps" \
+    org.opencontainers.image.source="https://github.com/KaiGrassnick/vrm-mqtt-app" \
     org.opencontainers.image.licenses="MIT"
