@@ -1,0 +1,64 @@
+views:
+  - type: sections
+    sections:
+      - type: grid
+        cards:
+          - type: custom:flex-table-card
+            title: VRM Installations
+            action: script.vrm_installations_table
+            entities:
+              - sensor.vrm_installations
+            auto_format: false
+            sort_by: installations.name+
+            display_footer: true
+            columns:
+              - name: Installation
+                data: installations.name
+                align: left
+                footer_type: text
+                footer_text: Total
+              - name: SoC
+                data: installations.soc
+                align: right
+                suffix: ' %'
+                modify: Math.round(x)
+              - name: Battery Voltage
+                data: installations.battery_voltage
+                align: right
+                suffix: ' V'
+                modify: parseFloat(x).toFixed(2)
+              - name: Solar
+                data: installations.pv
+                align: right
+                suffix: ' W'
+                modify: Math.round(x)
+                footer_type: sum
+              - name: Netz
+                data: installations.grid
+                align: right
+                suffix: ' W'
+                modify: Math.round(x)
+                footer_type: sum
+              - name: Last
+                data: installations.load
+                align: right
+                suffix: ' W'
+                modify: Math.round(x)
+                footer_type: sum
+              - name: Generator
+                data: installations.genset
+                align: right
+                suffix: ' W'
+                modify: Math.round(x)
+                footer_type: sum
+            css:
+              table: 'display: grid;'
+              thead, tbody, tfoot: 'display: contents;'
+              tr: 'display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr 1fr;'
+              thead tr: 'order: 1; margin-bottom: 4px;'
+              tbody tr: 'order: 3;'
+              tfoot tr: >-
+                order: 2; background-color: rgba(125, 125, 125, 0.4);
+                font-weight: 600; border-style: none;
+              tfoot tr td:first-child: 'text-align: left;'
+        column_span: 4

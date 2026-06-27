@@ -1,0 +1,44 @@
+name: VRM MQTT
+version: "0.1.0"
+slug: vrm-mqtt
+description: >-
+  Bridges Victron VRM installations to the Home Assistant Mosquitto broker
+  using MQTT discovery.
+url: "https://github.com/KaiGrassnick/vrm-mqtt-apps/tree/main/vrm-mqtt"
+arch:
+  - aarch64
+  - amd64
+init: false
+stage: experimental
+panel_icon: mdi:solar-power
+hassio_api: true
+homeassistant_api: true
+hassio_role: homeassistant
+services:
+  - "mqtt:want"
+image: "ghcr.io/kaigrassnick/vrm-mqtt-apps"
+# Commented out for local dev so the supervisor builds the image from this
+# Dockerfile. Restore it before pushing a release that has a matching image
+# published to GHCR (see .github/workflows/build-app.yaml).
+options:
+  vrm_api_token: ""
+  vrm_api_base_url: "https://vrmapi.victronenergy.com/v2"
+  vrm_poll_interval_ms: 300000
+  vrm_disabled_installation_ids: ""
+  vrm_installation_startup_delay_ms: 500
+  vrm_throttle_interval_ms: 500
+  ha_mqtt_host: "core-mosquitto"
+  ha_mqtt_port: 1883
+  ha_mqtt_username: ""
+  ha_mqtt_password: ""
+schema:
+  vrm_api_token: "password"
+  vrm_api_base_url: "url?"
+  vrm_poll_interval_ms: "int(0,86400000)?"
+  vrm_disabled_installation_ids: "str?"
+  vrm_installation_startup_delay_ms: "int(0,60000)?"
+  vrm_throttle_interval_ms: "int(0,60000)?"
+  ha_mqtt_host: "str?"
+  ha_mqtt_port: "port?"
+  ha_mqtt_username: "str?"
+  ha_mqtt_password: "password?"

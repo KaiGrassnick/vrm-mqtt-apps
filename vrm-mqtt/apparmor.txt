@@ -1,0 +1,65 @@
+#include <tunables/global>
+
+profile vrm-mqtt flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # Capabilities
+  file,
+  signal (send) set=(kill,term,int,hup,cont),
+  network inet stream,
+
+  # S6-Overlay
+  /init ix,
+  /bin/** ix,
+  /usr/bin/** ix,
+  /run/{s6,s6-rc*,service}/** ix,
+  /package/** ix,
+  /command/** ix,
+  /etc/services.d/** rwix,
+  /etc/cont-init.d/** rwix,
+  /etc/cont-finish.d/** rwix,
+  /run/{,**} rwk,
+  /dev/tty rw,
+
+  # Bashio
+  /usr/lib/bashio/** ix,
+  /tmp/** rwk,
+
+  # Access to options.json and other files within your app
+  /data/** rw,
+
+  # Access required by Node.js runtime
+  /usr/bin/node ix,
+  /usr/lib/node_modules/** mrwk,
+  /app/** mrwk,
+
+  # Start new profile for service
+  /usr/bin/my_program cx -> my_program,
+
+  profile my_program flags=(attach_disconnected,mediate_deleted) {
+    #include <abstractions/base>
+
+    # Receive signals from S6-Overlay
+    signal (receive) peer=*_vrm-mqtt,
+
+    # Access to options.json and other files within your app
+    /data/** rw,
+
+    # Node.js runtime + compiled bridge
+    /usr/bin/node ix,
+    /usr/lib/** mrwk,
+    /app/** mrwk,
+
+    # System libs the Node binary needs at runtime
+    /etc/ld.so.cache r,
+    /lib/** mr,
+    /usr/lib/** mr,
+    /dev/null rw,
+    /dev/random r,
+    /dev/urandom r,
+    /etc/resolv.conf r,
+    /etc/ssl/** r,
+    /etc/passwd r,
+    /dev/tty rw,
+  }
+}

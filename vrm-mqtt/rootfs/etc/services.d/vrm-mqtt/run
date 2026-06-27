@@ -1,0 +1,41 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Start the VRM MQTT bridge
+# https://developers.home-assistant.io/docs/apps/configuration#app-script
+# s6-overlay docs: https://github.com/just-containers/s6-overlay
+# ==============================================================================
+set -e
+
+# Map add-on options to environment variables expected by the Node app.
+export VRM_API_TOKEN="$(bashio::config 'vrm_api_token')"
+export VRM_API_BASE_URL="$(bashio::config 'vrm_api_base_url')"
+export VRM_POLL_INTERVAL_MS="$(bashio::config 'vrm_poll_interval_ms')"
+export VRM_DISABLED_INSTALLATION_IDS="$(bashio::config 'vrm_disabled_installation_ids')"
+export VRM_INSTALLATION_STARTUP_DELAY_MS="$(bashio::config 'vrm_installation_startup_delay_ms')"
+export VRM_THROTTLE_INTERVAL_MS="$(bashio::config 'vrm_throttle_interval_ms')"
+export HA_MQTT_HOST="$(bashio::config 'ha_mqtt_host')"
+export HA_MQTT_PORT="$(bashio::config 'ha_mqtt_port')"
+export HA_MQTT_USERNAME="$(bashio::config 'ha_mqtt_username')"
+export HA_MQTT_PASSWORD="$(bashio::config 'ha_mqtt_password')"
+
+# bashio::config returns the literal string "null" for missing keys and an
+# empty string for explicitly empty values. Either means "no token".
+if [[ -z "${VRM_API_TOKEN}" || "${VRM_API_TOKEN}" == "null" ]]; then
+    bashio::exit.nok \
+        "VRM API token is required. Set it in the add-on Configuration tab."
+fi
+
+# Prefer the MQTT service exposed by Home Assistant if available.
+if bashio::services.available "mqtt"; then
+    HA_MQTT_HOST="$(bashio::services 'mqtt' 'host')"
+    HA_MQTT_PORT="$(bashio::services 'mqtt' 'port')"
+    HA_MQTT_USERNAME="$(bashio::services 'mqtt' 'username')"
+    HA_MQTT_PASSWORD="$(bashio::services 'mqtt' 'password')"
+    export HA_MQTT_HOST HA_MQTT_PORT HA_MQTT_USERNAME HA_MQTT_PASSWORD
+    bashio::log.info "Using MQTT service from Home Assistant (${HA_MQTT_HOST}:${HA_MQTT_PORT})"
+else
+    bashio::log.info "Using manual MQTT settings (${HA_MQTT_HOST}:${HA_MQTT_PORT})"
+fi
+
+bashio::log.info "Starting VRM MQTT bridge..."
+exec /usr/bin/my_program

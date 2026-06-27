@@ -1,0 +1,6 @@
+recorder:
+  exclude:
+    entities:
+      - sensor.vrm_installations
+
+template: !include_dir_merge_list templates/

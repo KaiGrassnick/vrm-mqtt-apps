@@ -1,0 +1,17 @@
+alias: VRM Installations Table
+description: >
+  Returns the per-installation rows for the VRM Installations flex-table-card.
+  Reads from the VRM Installations template sensor (which auto-refreshes every
+  30s) and returns the structure flex-table-card requires when one or more
+  entities are specified: {<entity_id>: {installations: [...]}}.
+fields: {}
+variables:
+  rows: >-
+    {% set data = state_attr('sensor.vrm_installations', 'installations') %}
+    {% set parsed = data if data is mapping else (data | from_json if data else {'installations': []}) %}
+    {% set wrapper = namespace(d={}) %}
+    {% set wrapper.d = wrapper.d | combine({entity_id[0]: parsed}) %}
+    {{ wrapper.d }}
+sequence:
+  - stop: ok
+    response_variable: rows

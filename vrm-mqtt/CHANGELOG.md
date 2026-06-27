@@ -1,0 +1,10 @@
+<!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.0
+
+- Initial release of the VRM MQTT Home Assistant app.
+- Polls the VRM REST API for installations and bridges each installation's
+  VRM MQTT feed into the Home Assistant Mosquitto broker.
+- Publishes MQTT discovery configs under `homeassistant/...` and a stable
+  state topic tree under `vrm/<installation_id>/...`.
+- Auto-detects the Home Assistant MQTT service; falls back to manual
+  `ha_mqtt_*` options when none is registered.

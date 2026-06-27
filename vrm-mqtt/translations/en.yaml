@@ -1,0 +1,44 @@
+configuration:
+  vrm_api_token:
+    name: VRM API token
+    description: >-
+      Personal access token from the VRM Portal
+      (User menu -> Preferences -> Access tokens -> Generate token).
+  vrm_api_base_url:
+    name: VRM API base URL
+    description: Base URL of the VRM REST API.
+  vrm_poll_interval_ms:
+    name: Poll interval (ms)
+    description: >-
+      How often the bridge polls the VRM API for installation list changes.
+  vrm_disabled_installation_ids:
+    name: Disabled installation IDs
+    description: >-
+      Comma-separated list of VRM installation IDs that should not be
+      connected (useful for shared accounts).
+  vrm_installation_startup_delay_ms:
+    name: Installation startup delay (ms)
+    description: >-
+      Delay between starting each installation's VRM MQTT connection on
+      startup or reconcile.
+  vrm_throttle_interval_ms:
+    name: Message throttle (ms)
+    description: >-
+      Global flush interval for cross-installation message coalescing.
+      Set to 0 to disable throttling.
+  ha_mqtt_host:
+    name: MQTT host
+    description: >-
+      Home Assistant MQTT broker host. Auto-detected from the MQTT
+      service if one is registered.
+  ha_mqtt_port:
+    name: MQTT port
+    description: Home Assistant MQTT broker port.
+  ha_mqtt_username:
+    name: MQTT username
+    description: >-
+      MQTT username. Leave empty for an anonymous broker (the official
+      Mosquitto add-on is anonymous by default).
+  ha_mqtt_password:
+    name: MQTT password
+    description: MQTT password.
