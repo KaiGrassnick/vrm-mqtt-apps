@@ -39,6 +39,10 @@ profile vrm-mqtt flags=(attach_disconnected,mediate_deleted) {
   profile my_program flags=(attach_disconnected,mediate_deleted) {
     #include <abstractions/base>
 
+    # Capabilities (NOT inherited from parent profile — must be repeated)
+    network inet stream,
+    network inet6 stream,
+
     # Receive signals from S6-Overlay
     signal (receive) peer=*_vrm-mqtt,
 
@@ -47,18 +51,21 @@ profile vrm-mqtt flags=(attach_disconnected,mediate_deleted) {
 
     # Node.js runtime + compiled bridge
     /usr/bin/node ix,
-    /usr/lib/** mrwk,
     /app/** mrwk,
 
     # System libs the Node binary needs at runtime
+    /usr/bin/my_program r,
     /etc/ld.so.cache r,
     /lib/** mr,
-    /usr/lib/** mr,
+    /usr/lib/** mrwk,
     /dev/null rw,
     /dev/random r,
     /dev/urandom r,
     /etc/resolv.conf r,
     /etc/ssl/** r,
+    /bin/bash rix,
+    /bin/sh rix,
+    /bin/echo ix,
     /etc/passwd r,
     /dev/tty rw,
   }
