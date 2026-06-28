@@ -1,4 +1,11 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.2
+- disable automatic mqtt service evaluation during startup
+
+## 0.1.1
+- Bump package dependencies
+- improve build process
+
 ## 0.1.0
 
 - Initial release of the VRM MQTT Home Assistant app.

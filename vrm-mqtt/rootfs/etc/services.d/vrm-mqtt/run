@@ -26,16 +26,16 @@ if [[ -z "${VRM_API_TOKEN}" || "${VRM_API_TOKEN}" == "null" ]]; then
 fi
 
 # Prefer the MQTT service exposed by Home Assistant if available.
-if bashio::services.available "mqtt"; then
-    HA_MQTT_HOST="$(bashio::services 'mqtt' 'host')"
-    HA_MQTT_PORT="$(bashio::services 'mqtt' 'port')"
-    HA_MQTT_USERNAME="$(bashio::services 'mqtt' 'username')"
-    HA_MQTT_PASSWORD="$(bashio::services 'mqtt' 'password')"
-    export HA_MQTT_HOST HA_MQTT_PORT HA_MQTT_USERNAME HA_MQTT_PASSWORD
-    bashio::log.info "Using MQTT service from Home Assistant (${HA_MQTT_HOST}:${HA_MQTT_PORT})"
-else
+#if bashio::services.available "mqtt"; then
+#    HA_MQTT_HOST="$(bashio::services 'mqtt' 'host')"
+#    HA_MQTT_PORT="$(bashio::services 'mqtt' 'port')"
+#    HA_MQTT_USERNAME="$(bashio::services 'mqtt' 'username')"
+#    HA_MQTT_PASSWORD="$(bashio::services 'mqtt' 'password')"
+#    export HA_MQTT_HOST HA_MQTT_PORT HA_MQTT_USERNAME HA_MQTT_PASSWORD
+#    bashio::log.info "Using MQTT service from Home Assistant (${HA_MQTT_HOST}:${HA_MQTT_PORT})"
+#else
     bashio::log.info "Using manual MQTT settings (${HA_MQTT_HOST}:${HA_MQTT_PORT})"
-fi
+#fi
 
 bashio::log.info "Starting VRM MQTT bridge..."
 exec /usr/bin/my_program
