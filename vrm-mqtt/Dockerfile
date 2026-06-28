@@ -18,7 +18,7 @@ RUN \
         "https://github.com/home-assistant/tempio/releases/download/${TEMPIO_VERSION}/tempio_${tempio_arch}" \
     && chmod a+x /usr/bin/tempio
 
-# Ensure Node.js 22 runtime is available
+# Ensure Node.js 24 runtime is available
 RUN apk add --no-cache nodejs npm
 
 # Build the Node.js bridge application
@@ -39,5 +39,5 @@ RUN chmod a+x /usr/bin/my_program \
 LABEL \
     org.opencontainers.image.title="Home Assistant App: VRM MQTT" \
     org.opencontainers.image.description="Bridges Victron VRM installations to the Home Assistant Mosquitto broker." \
-    org.opencontainers.image.source="https://github.com/KaiGrassnick/vrm-mqtt-app" \
+    org.opencontainers.image.source="https://github.com/KaiGrassnick/vrm-mqtt-apps" \
     org.opencontainers.image.licenses="MIT"
