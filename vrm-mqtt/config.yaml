@@ -1,5 +1,5 @@
 name: VRM MQTT
-version: "0.1.3"
+version: "0.1.4"
 slug: vrm-mqtt
 description: >-
   Bridges Victron VRM installations to the Home Assistant Mosquitto broker
@@ -14,6 +14,7 @@ panel_icon: mdi:solar-power
 hassio_api: true
 homeassistant_api: true
 hassio_role: homeassistant
+apparmor: false
 services:
   - "mqtt:want"
 image: "ghcr.io/kaigrassnick/vrm-mqtt-apps"
