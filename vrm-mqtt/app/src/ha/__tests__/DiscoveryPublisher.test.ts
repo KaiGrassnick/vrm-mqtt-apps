@@ -14,7 +14,6 @@ function publisher(ha = makeMockHa()) {
 }
 
 const ID_SITE = 12345;
-const IDENTIFIER = 'abc123';
 const NAME = 'Beach House';
 
 // ── publishInstallation ───────────────────────────────────────────────────────
@@ -22,7 +21,7 @@ const NAME = 'Beach House';
 describe('publishInstallation', () => {
   it('publishes retained to homeassistant/device/vrm_{idSite}/config', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
+    pub.publishInstallation(ID_SITE, NAME);
     expect(ha.publish).toHaveBeenCalledWith(
       `homeassistant/device/vrm_${ID_SITE}/config`,
       expect.any(String),
@@ -32,7 +31,7 @@ describe('publishInstallation', () => {
 
   it('payload has device, origin, availability_topic, and components', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
+    pub.publishInstallation(ID_SITE, NAME);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
     expect(payload.device).toMatchObject({
       identifiers: [`vrm_${ID_SITE}`],
@@ -46,14 +45,14 @@ describe('publishInstallation', () => {
 
   it('payload has 13 components', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
+    pub.publishInstallation(ID_SITE, NAME);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
     expect(Object.keys(payload.components)).toHaveLength(13);
   });
 
   it('components use platform instead of component, and have no device field', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
+    pub.publishInstallation(ID_SITE, NAME);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
     for (const comp of Object.values(payload.components) as Record<string, unknown>[]) {
       expect(comp.platform).toBeDefined();
@@ -64,7 +63,7 @@ describe('publishInstallation', () => {
 
   it('state_topic uses full vrm path (system/0)', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
+    pub.publishInstallation(ID_SITE, NAME);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
     const soc = payload.components['system_0_dc_battery_soc'];
     expect(soc.state_topic).toBe(`vrm/${ID_SITE}/system/0/Dc/Battery/Soc`);
@@ -72,7 +71,7 @@ describe('publishInstallation', () => {
 
   it('includes grid L1/L2/L3 components', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
+    pub.publishInstallation(ID_SITE, NAME);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
     expect(payload.components['system_0_ac_grid_l1_power']).toBeDefined();
     expect(payload.components['system_0_ac_grid_l2_power']).toBeDefined();
@@ -81,15 +80,15 @@ describe('publishInstallation', () => {
 
   it('is idempotent: no re-publish when name unchanged', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
+    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, NAME);
     expect(ha.publish).toHaveBeenCalledTimes(1);
   });
 
   it('re-publishes when name changes', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
-    pub.publishInstallation(ID_SITE, IDENTIFIER, 'New Name');
+    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, 'New Name');
     expect(ha.publish).toHaveBeenCalledTimes(2);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[1][1] as string);
     expect(payload.device.name).toBe('New Name');
@@ -117,7 +116,7 @@ describe('publishAvailability', () => {
 describe('removeInstallation', () => {
   it('clears the retained discovery topic and publishes offline', async () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
+    pub.publishInstallation(ID_SITE, NAME);
     (ha.publish as jest.Mock).mockClear();
 
     await pub.removeInstallation(ID_SITE);
@@ -132,8 +131,8 @@ describe('removeInstallation', () => {
 
   it('does not touch other installations', async () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
-    pub.publishInstallation(999, 'other', 'Other Site');
+    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(999, 'Other Site');
     (ha.publish as jest.Mock).mockClear();
 
     await pub.removeInstallation(ID_SITE);
@@ -170,10 +169,10 @@ describe('removeInstallation', () => {
 
   it('allows re-publish after removal', async () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
+    pub.publishInstallation(ID_SITE, NAME);
     await pub.removeInstallation(ID_SITE);
     (ha.publish as jest.Mock).mockClear();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
+    pub.publishInstallation(ID_SITE, NAME);
     expect(ha.publish).toHaveBeenCalledTimes(1);
   });
 });
@@ -183,8 +182,8 @@ describe('removeInstallation', () => {
 describe('onHaBirth', () => {
   it('re-publishes all stored discovery payloads retained', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
-    pub.publishInstallation(999, 'other', 'Other Site');
+    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(999, 'Other Site');
     (ha.publish as jest.Mock).mockClear();
 
     pub.onHaBirth();
@@ -197,8 +196,8 @@ describe('onHaBirth', () => {
 
   it('re-publishes availability online for each installation', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, IDENTIFIER, NAME);
-    pub.publishInstallation(999, 'other', 'Other Site');
+    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(999, 'Other Site');
     (ha.publish as jest.Mock).mockClear();
 
     pub.onHaBirth();

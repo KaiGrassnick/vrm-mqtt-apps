@@ -170,7 +170,7 @@ describe('MqttBridgeConnection', () => {
   });
 
   describe('discovery published on connect', () => {
-    it('calls publishInstallation with idSite, identifier and name on connect', () => {
+    it('calls publishInstallation with idSite and name on connect', () => {
       const client = makeMockClient(false);
       const publisher = makeMockPublisher();
       const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: publisher as never });
@@ -180,7 +180,6 @@ describe('MqttBridgeConnection', () => {
       client.emit('connect');
       expect(publisher.publishInstallation).toHaveBeenCalledWith(
         installation.idSite,
-        installation.identifier,
         installation.name,
       );
     });
@@ -339,7 +338,6 @@ describe('MqttBridgeConnection', () => {
       conn.updateName('Renamed Site');
       expect(publisher.publishInstallation).toHaveBeenCalledWith(
         installation.idSite,
-        installation.identifier,
         'Renamed Site',
       );
     });
@@ -353,7 +351,6 @@ describe('MqttBridgeConnection', () => {
       conn.updateName('Early Rename');
       expect(publisher.publishInstallation).toHaveBeenCalledWith(
         installation.idSite,
-        installation.identifier,
         'Early Rename',
       );
     });
@@ -507,6 +504,32 @@ describe('MqttBridgeConnection', () => {
         { qos: 0 },
         expect.any(Function),
       );
+    });
+
+    it('ignores messages whose topic carries the suffixed identifier', () => {
+      // Spec invariant: handleMessage filters by brokerPortalId, never by the
+      // raw identifier. If a message arrives on N/{identifier-with-marker}/...,
+      // the connection drops it — the broker never publishes there, but the
+      // filter must hold defensively.
+      const client = makeMockClient(true);
+      const ha = makeMockHa();
+      const conn = new MqttBridgeConnection({
+        installation: replacedInstallation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: ha as never,
+        publisher: makeMockPublisher() as never,
+      });
+      conn.start();
+      jest.advanceTimersByTime(500);
+
+      client.emit(
+        'message',
+        `N/${replacedInstallation.identifier}/system/0/Dc/Battery/Soc`,
+        Buffer.from('{"value":42}'),
+      );
+      jest.advanceTimersByTime(500);
+
+      expect(ha.publish).not.toHaveBeenCalled();
     });
   });
 });

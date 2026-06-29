@@ -30,7 +30,7 @@ export class DiscoveryPublisher {
    * Build and publish the single-device discovery payload for one installation.
    * No-ops if the name is unchanged (idempotent on reconnect).
    */
-  publishInstallation(idSite: number, identifier: string, installationName: string): void {
+  publishInstallation(idSite: number, installationName: string): void {
     const existing = this.published.get(idSite);
     if (existing && existing.name === installationName) return;
 

@@ -12,6 +12,10 @@
  * the record rather than build an N//... subscribe path.
  */
 export function toBrokerPortalId(identifier: string): string {
+  // Matches a trailing ' - USEDASREPLACEMENT AT <digits>' marker that VRM
+  // appends to replacement installations. Consumes the canonical ' - '
+  // separator plus any surrounding whitespace. A future marker shape is a
+  // one-line regex change plus a test.
   const stripped = identifier.replace(/\s*-?\s*USEDASREPLACEMENT\s+AT\s+\d+\s*$/, '');
   return stripped.trim();
 }

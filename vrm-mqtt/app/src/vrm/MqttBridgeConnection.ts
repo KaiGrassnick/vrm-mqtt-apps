@@ -131,7 +131,7 @@ export class MqttBridgeConnection {
       }
     });
 
-    this.publisher.publishInstallation(this.installation.idSite, this.installation.identifier, this.installation.name);
+    this.publisher.publishInstallation(this.installation.idSite, this.installation.name);
     this.publisher.publishAvailability(this.installation.idSite, true);
     this.sendKeepalive();
 
@@ -189,7 +189,7 @@ export class MqttBridgeConnection {
   updateName(newName: string): void {
     if (this.installation.name === newName) return;
     this.installation.name = newName;
-    this.publisher.publishInstallation(this.installation.idSite, this.installation.identifier, newName);
+    this.publisher.publishInstallation(this.installation.idSite, newName);
   }
 
   private handleError(err: Error): void {
