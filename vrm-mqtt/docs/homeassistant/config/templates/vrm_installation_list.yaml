@@ -14,7 +14,12 @@
             {% set eid = s.entity_id %}
             {% set portal = eid.split('_')[1] %}
             {% set id = 'vrm_' ~ portal %}
-            {% set pv   = states('sensor.' ~ id ~ '_system_0_dc_pv_power')                    | float(0) %}
+            {% set dc_pv = states('sensor.' ~ id ~ '_system_0_dc_pv_power')                   | float(0) %}
+            {% set on_grid_pv = states('sensor.' ~ id ~ '_system_0_ac_pvongrid_aggpower')     | float(0) %}
+            {% if on_grid_pv < 0 %}
+              {% set on_grid_pv = 0 %}
+            {% endif %}
+            {% set pv = dc_pv + on_grid_pv %}
             {% set soc   = states('sensor.' ~ id ~ '_system_0_dc_battery_soc')                | float(0) %}
             {% set battery_voltage = states('sensor.' ~ id ~ '_system_0_dc_battery_voltage')  | float(0) %}
             {% set grid  = states('sensor.' ~ id ~ '_system_0_ac_grid_aggpower')              | float(0) %}

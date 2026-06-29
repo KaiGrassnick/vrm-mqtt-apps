@@ -20,6 +20,9 @@ export const INSTALLATION_PATHS = [
   'Ac/Genset/L1/Power',
   'Ac/Genset/L2/Power',
   'Ac/Genset/L3/Power',
+  'Ac/PvOnGrid/L1/Power',
+  'Ac/PvOnGrid/L2/Power',
+  'Ac/PvOnGrid/L3/Power',
 ] as const;
 
 function toComponents(configs: HaDiscoveryConfig[]): Record<string, HaDeviceDiscoveryComponent> {

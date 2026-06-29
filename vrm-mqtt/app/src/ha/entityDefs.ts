@@ -205,6 +205,7 @@ const SYSTEM_ENTITIES: EntityDef[] = [
   { path: 'Ac/PvOnOutput/L{n}/Power', component: 'sensor', name: 'PV On Output L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Ac/PvOnOutput/L{n}/Current', component: 'sensor', name: 'PV On Output L{n} Current', unit: 'A', deviceClass: 'current', stateClass: 'measurement', precision: 1 },
   { path: 'Ac/PvOnGrid/L{n}/Power', component: 'sensor', name: 'PV On Grid L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
+  { path: 'Ac/PvOnGrid/AggPower', component: 'sensor', name: 'PV On Grid Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/PvOnGrid/L{n}/Power'] },
   // ESS control limits
   { path: 'Control/ActiveSocLimit', component: 'sensor', name: 'Active SOC Limit', unit: '%', stateClass: 'measurement', precision: 1 },
   { path: 'Control/ScheduledSoc', component: 'sensor', name: 'Scheduled SOC', unit: '%', stateClass: 'measurement', precision: 1 },

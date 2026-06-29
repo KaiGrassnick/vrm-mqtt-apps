@@ -1,4 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.9
+- Add pvOnGrid sensors
+
 ## 0.1.8
 - Automatically add aggregate sensors if we have multiple phases
 
