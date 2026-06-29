@@ -14,7 +14,7 @@ describe('RollingMessageThrottle', () => {
     jest.useRealTimers();
   });
 
-  // ── preserved semantics (must match the old GlobalMessageThrottle) ────────
+  // ── preserved semantics (coalescing, bypass, idempotent start, flush-doesn't-stop, stop-clears, empty-flush) ────────
 
   it('publishes directly when intervalMs is 0 (bypass mode)', () => {
     const direct = new RollingMessageThrottle(0, publish);

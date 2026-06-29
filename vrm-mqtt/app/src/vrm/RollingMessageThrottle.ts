@@ -3,17 +3,18 @@ import type { PublishFn } from './MessageThrottle';
 /**
  * Sharded, rolling message throttle for fleet-scale MQTT publish load.
  *
- * Replaces the previous single-buffer `GlobalMessageThrottle` with a
- * buffer partitioned by `portalId` (extracted from the `vrm/{portalId}/…`
- * topic prefix). A `setTimeout` chain ticks at `max(1, ⌊intervalMs / N⌋)`
- * milliseconds, where N is the number of distinct installations that have
- * data buffered. Each tick advances a round-robin cursor and flushes one
- * shard — the latest payload per topic, like the old throttle.
+ * A `setTimeout` chain ticks at `max(1, ⌊intervalMs / N⌋)` milliseconds,
+ * where N is the number of distinct installations that have data buffered.
+ * Each tick advances a round-robin cursor and flushes one shard — the
+ * latest payload per topic. The buffer is partitioned by `portalId`
+ * (extracted from the `vrm/{portalId}/…` topic prefix), so a single
+ * installation's timing matches the original single-buffer throttle.
  *
- * Net effect: with 100 installations the ~700 publishes that used to hit
- * the broker in a single synchronous batch every 500ms are spread roughly
- * evenly across the 500ms window (one installation's publishes every 5ms).
- * For a single installation the timing is byte-identical to the old throttle.
+ * Net effect: with 100 installations the ~700 publishes that would
+ * otherwise hit the broker in a single synchronous batch every 500ms
+ * are spread roughly evenly across the 500ms window (one installation's
+ * publishes every 5ms). For a single installation the timing is
+ * byte-identical to the legacy single-buffer behaviour.
  */
 export class RollingMessageThrottle {
   private readonly shards = new Map<string, Map<string, string>>();
@@ -58,8 +59,7 @@ export class RollingMessageThrottle {
 
   /**
    * Drain all buffered topics immediately. The schedule keeps running —
-   * a subsequent `enqueue` will be picked up by the next tick. Preserves
-   * the old `GlobalMessageThrottle` contract for HA-offline handling.
+   * a subsequent `enqueue` is picked up by the next tick.
    */
   flush(): void {
     this.drainAll();
