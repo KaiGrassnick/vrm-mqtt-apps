@@ -1,5 +1,5 @@
 import type { DeviceMeta, HaDevice, HaDiscoveryConfig } from './types';
-import type { EntityDef } from './entityDefs';
+import type { CustomAggregateEntityDef, EntityDef } from './entityDefs';
 import { SERVICE_ENTITY_DEFS } from './entityDefs';
 import type { VrmServiceName } from '../vrm/types';
 
@@ -18,6 +18,7 @@ export function buildDiscoveryConfigs(
   instance: string | number,
   meta: DeviceMeta,
   observedPaths: string[],
+  customAggregates: readonly CustomAggregateEntityDef[] = [],
 ): HaDiscoveryConfig[] {
   const defs = SERVICE_ENTITY_DEFS[service];
   if (!defs) return [];
@@ -26,21 +27,24 @@ export function buildDiscoveryConfigs(
   const configs: HaDiscoveryConfig[] = [];
   const pathSet = new Set(observedPaths);
 
+  // Normal entities — only those with forward: true are surfaced to HA.
   for (const def of defs) {
+    if (!def.forward) continue;
     if (def.path.includes('{n}')) {
       for (const n of matchTemplateIndices(def.path, observedPaths)) {
         configs.push(entityToConfig(idSite, service, instance, device, def, n));
       }
-    } else if (def.component === 'sensor' && def.aggregateFrom) {
-      // Aggregate sensor: emit a single entity whose state topic the bridge
-      // populates with the sum of its source paths. Only emit when at least
-      // one source has been observed — otherwise the entity would exist but
-      // never receive a value.
-      if (expandAggregateSourcePaths(def.aggregateFrom, observedPaths).length > 0) {
-        configs.push(entityToConfig(idSite, service, instance, device, def));
-      }
     } else if (pathSet.has(def.path)) {
       configs.push(entityToConfig(idSite, service, instance, device, def));
+    }
+  }
+
+  // Custom aggregates — same gating as the old aggregate branch.
+  // Only forward: true aggregates with at least one observed source emit configs.
+  for (const agg of customAggregates) {
+    if (!agg.forward) continue;
+    if (expandAggregateSourcePaths(agg.aggregateFrom, observedPaths).length > 0) {
+      configs.push(entityToConfig(idSite, service, instance, device, agg));
     }
   }
 
@@ -160,9 +164,31 @@ function entityToConfig(
   service: VrmServiceName,
   instance: string | number,
   device: HaDevice,
-  def: EntityDef,
+  def: EntityDef | CustomAggregateEntityDef,
   n?: string,
 ): HaDiscoveryConfig {
+  // Custom aggregate — structurally a sensor whose value is published by the bridge.
+  if (!('component' in def)) {
+    const path = n !== undefined ? resolveN(def.path, n) : def.path;
+    const name = n !== undefined ? resolveN(def.name, n) : def.name;
+    const uniqueId = makeUniqueId(idSite, service, instance, path);
+    const sTopic = makeStateTopic(idSite, service, instance, path);
+    return {
+      name,
+      unique_id: uniqueId,
+      default_entity_id: `sensor.${uniqueId}`,
+      device,
+      component: 'sensor',
+      state_topic: sTopic,
+      value_template:
+        "{% if value_json is defined %}{{ value_json.value | default('Unknown') }}{% else %}Unknown{% endif %}",
+      unit_of_measurement: def.unit,
+      device_class: def.deviceClass,
+      state_class: def.stateClass,
+      ...(def.precision !== undefined && { suggested_display_precision: def.precision }),
+    };
+  }
+
   const path = n !== undefined ? resolveN(def.path, n) : def.path;
   const name = n !== undefined ? resolveN(def.name, n) : def.name;
   const uniqueId = makeUniqueId(idSite, service, instance, path);
