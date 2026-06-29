@@ -538,4 +538,81 @@ describe('MqttBridgeConnection', () => {
       expect(ha.publish).not.toHaveBeenCalled();
     });
   });
+
+  describe('retained state topic cleanup', () => {
+    const portalId = installation.brokerPortalId;
+    const idSite = installation.idSite;
+    const INTERVAL = 100;
+
+    function makeActiveConn(): {
+      client: ReturnType<typeof makeMockClient>;
+      ha: ReturnType<typeof makeMockHa>;
+      conn: MqttBridgeConnection;
+    } {
+      const client = makeMockClient(true);
+      const ha = makeMockHa();
+      const conn = new MqttBridgeConnection({
+        installation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: ha as never,
+        publisher: makeMockPublisher() as never,
+        throttleIntervalMs: INTERVAL,
+        getIdSite: idSiteFor(installation),
+      });
+      conn.start();
+      client.emit('connect');
+      return { client, ha, conn };
+    }
+
+    function emit(client: ReturnType<typeof makeMockClient>, topic: string, payload: string): void {
+      client.emit('message', topic, Buffer.from(payload));
+    }
+
+    it('publishes empty-retained for each forwarded state topic on stop()', async () => {
+      const { client, ha, conn } = makeActiveConn();
+
+      emit(client, `N/${portalId}/system/0/Dc/Battery/Soc`, '{"value":80}');
+      jest.advanceTimersByTime(INTERVAL);
+      emit(client, `N/${portalId}/system/0/Dc/Battery/Voltage`, '{"value":13.4}');
+      jest.advanceTimersByTime(INTERVAL);
+
+      (ha.publish as jest.Mock).mockClear();
+      await conn.stop();
+
+      // One retained-clear per tracked state topic, with empty payload and retained=true.
+      const clears = (ha.publish as jest.Mock).mock.calls.filter(
+        ([_t, p, r]: [string, string, boolean]) => p === '' && r === true,
+      );
+      const clearTopics = clears.map(([t]: [string]) => t).sort();
+      expect(clearTopics).toEqual([
+        `vrm/${idSite}/system/0/Dc/Battery/Soc`,
+        `vrm/${idSite}/system/0/Dc/Battery/Voltage`,
+      ].sort());
+    });
+
+    it('does not publish retained-clear for topics that were never forwarded', async () => {
+      const { ha, conn } = makeActiveConn();
+      await conn.stop();
+      const clears = (ha.publish as jest.Mock).mock.calls.filter(
+        ([_t, p, r]: [unknown, string, boolean]) => p === '' && r === true,
+      );
+      expect(clears).toEqual([]);
+    });
+
+    it('flushes buffered state before clearing retained, so the broker ends with empty payload retained', async () => {
+      const { client, ha, conn } = makeActiveConn();
+
+      // Buffer without flushing (don't advance time).
+      emit(client, `N/${portalId}/system/0/Dc/Battery/Soc`, '{"value":80}');
+
+      (ha.publish as jest.Mock).mockClear();
+      await conn.stop();
+
+      // Order on the broker for this topic: retained payload, then empty retained.
+      const stateCalls = (ha.publish as jest.Mock).mock.calls.filter(
+        ([t]: [string]) => t === `vrm/${idSite}/system/0/Dc/Battery/Soc`,
+      );
+      expect(stateCalls.map(([, p]: [string, string]) => p)).toEqual(['{"value":80}', '']);
+    });
+  });
 });

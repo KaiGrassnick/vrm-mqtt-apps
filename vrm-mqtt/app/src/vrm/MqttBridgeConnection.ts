@@ -35,6 +35,9 @@ export class MqttBridgeConnection {
   private readonly keepaliveTopic: string;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private isFirstKeepalive = true;
+  /** HA-side topics this connection has forwarded; cleared on stop() so the broker
+   *  doesn't keep the old installation's last value retained. */
+  private readonly publishedStateTopics = new Set<string>();
 
   // Pre-bound so client.off() can remove the exact same reference
   private readonly boundHandleConnect: () => void;
@@ -85,6 +88,13 @@ export class MqttBridgeConnection {
       this.keepaliveTimer = null;
     }
     this.throttle.flush();
+
+    // Clear retained state values on the HA broker so the old installation's last
+    // values don't linger after teardown.
+    for (const topic of this.publishedStateTopics) {
+      this.ha.publish(topic, '', true);
+    }
+    this.publishedStateTopics.clear();
 
     // No client means start() was never called — nothing to clean up.
     if (!this.client) return;
@@ -178,6 +188,7 @@ export class MqttBridgeConnection {
 
     const str = payload.toString();
     for (const msg of routeFromVrm(topic, str, this.getIdSite)) {
+      this.publishedStateTopics.add(msg.topic);
       this.throttle.enqueue(msg.topic, msg.payload);
     }
   }
