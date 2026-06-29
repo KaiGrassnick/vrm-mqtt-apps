@@ -82,7 +82,7 @@ export class HaBrokerClient {
     });
   }
 
-  publish(topic: string, payload: string, retained = false): void {
+  publish(topic: string, payload: string, retained = true): void {
     if (!this.client?.connected) {
       console.warn(`[HA] Not connected — dropping publish to ${topic}`);
       return;

@@ -125,6 +125,22 @@ describe('HaBrokerClient', () => {
     );
   });
 
+  it('publish() defaults retained to true so throttle-driven state messages retain on the broker', () => {
+    const fake = makeFakeClient(true);
+    mockedConnect.mockReturnValue(fake);
+
+    const client = new HaBrokerClient({ host: 'h', port: 1 });
+    client.start();
+
+    client.publish('vrm/1/system/0/Dc/Battery/Voltage', '13.4');
+    expect((fake as unknown as { publish: jest.Mock }).publish).toHaveBeenCalledWith(
+      'vrm/1/system/0/Dc/Battery/Voltage',
+      '13.4',
+      expect.objectContaining({ retain: true }),
+      expect.any(Function),
+    );
+  });
+
   it('stop() calls end on the underlying client', async () => {
     const fake = makeFakeClient();
     mockedConnect.mockReturnValue(fake);
