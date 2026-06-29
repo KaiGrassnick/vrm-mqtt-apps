@@ -6,8 +6,6 @@ interface PublishedInstallation {
   discoveryTopic: string;
   payload: string;
   name: string;
-  legacyTopics: readonly string[];
-  legacyPurged: boolean;
 }
 
 /**
@@ -36,10 +34,6 @@ export class DiscoveryPublisher {
     const existing = this.published.get(idSite);
     if (existing && existing.name === installationName) return;
 
-    const legacyTopics = [
-      `homeassistant/device/vrm_${identifier}/config`,
-      `vrm/${identifier}/availability`,
-    ];
     const discoveryTopic = `homeassistant/device/vrm_${idSite}/config`;
     const payload = JSON.stringify(buildInstallationDiscovery(idSite, installationName, this.appVersion));
     this.ha.publish(discoveryTopic, payload, true);
@@ -47,8 +41,6 @@ export class DiscoveryPublisher {
       discoveryTopic,
       payload,
       name: installationName,
-      legacyTopics,
-      legacyPurged: false,
     });
   }
 
