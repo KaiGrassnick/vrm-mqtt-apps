@@ -45,23 +45,26 @@ describe('parseVrmTopic', () => {
 // ── routeFromVrm ──────────────────────────────────────────────────────────────
 
 describe('routeFromVrm', () => {
+  const idSiteFor = (brokerPortalId: string): number | undefined =>
+    brokerPortalId === 'abc123' ? 42 : undefined;
+
   it('rewrites N/… to vrm/…, payload unchanged', () => {
-    const result = routeFromVrm('N/abc123/battery/279/Soc', '{"value":87.4}');
-    expect(result).toEqual([{ topic: 'vrm/abc123/battery/279/Soc', payload: '{"value":87.4}' }]);
+    const result = routeFromVrm('N/abc123/battery/279/Soc', '{"value":87.4}', idSiteFor);
+    expect(result).toEqual([{ topic: 'vrm/42/battery/279/Soc', payload: '{"value":87.4}' }]);
   });
 
   it('preserves multi-segment paths', () => {
-    const [msg] = routeFromVrm('N/abc123/battery/279/Dc/0/Voltage', '{"value":25.87}');
-    expect(msg.topic).toBe('vrm/abc123/battery/279/Dc/0/Voltage');
+    const [msg] = routeFromVrm('N/abc123/battery/279/Dc/0/Voltage', '{"value":25.87}', idSiteFor);
+    expect(msg.topic).toBe('vrm/42/battery/279/Dc/0/Voltage');
   });
 
   it('returns [] for non-VRM topics', () => {
-    expect(routeFromVrm('R/abc123/keepalive', '')).toEqual([]);
-    expect(routeFromVrm('homeassistant/status', 'online')).toEqual([]);
+    expect(routeFromVrm('R/abc123/keepalive', '', idSiteFor)).toEqual([]);
+    expect(routeFromVrm('homeassistant/status', 'online', idSiteFor)).toEqual([]);
   });
 
   it('returns [] for malformed topics', () => {
-    expect(routeFromVrm('N/abc123/battery/279', '{"value":1}')).toEqual([]);
+    expect(routeFromVrm('N/abc123/battery/279', '{"value":1}', idSiteFor)).toEqual([]);
   });
 
   it('returns [] for empty payload (VRM device-gone signal)', () => {
@@ -69,24 +72,33 @@ describe('routeFromVrm', () => {
     // Forwarding those to HA causes value_json to be undefined and every
     // value_template referencing value_json.value to error. Drop them here
     // so HA's availability_topic can mark the device unavailable instead.
-    expect(routeFromVrm('N/abc123/battery/279/Soc', '')).toEqual([]);
-    expect(routeFromVrm('N/abc123/solarcharger/277/Dc/0/Voltage', '')).toEqual([]);
+    expect(routeFromVrm('N/abc123/battery/279/Soc', '', idSiteFor)).toEqual([]);
+    expect(routeFromVrm('N/abc123/solarcharger/277/Dc/0/Voltage', '', idSiteFor)).toEqual([]);
+  });
+
+  it('returns [] when the broker portalId is unknown to the caller', () => {
+    const lookup: (brokerPortalId: string) => number | undefined = () => undefined;
+    expect(routeFromVrm('N/abc123/battery/279/Soc', '{"value":1}', lookup)).toEqual([]);
   });
 });
 
 // ── routeFromHa ───────────────────────────────────────────────────────────────
 
 describe('routeFromHa', () => {
+  // parts[1] is now the HA-side numeric idSite — the translation back to
+  // brokerPortalId for the W/… topic happens in InstallationManager.routeHaCommand.
+  const idSiteNum = '42';
+
   // ── topic routing ────────────────────────────────────────────────────────
 
   it('rewrites vrm/…/set to W/…, removing the /set suffix', () => {
-    const [msg] = routeFromHa('vrm/abc123/battery/279/Relay/0/State/set', '1');
-    expect(msg.topic).toBe('W/abc123/battery/279/Relay/0/State');
+    const [msg] = routeFromHa(`vrm/${idSiteNum}/battery/279/Relay/0/State/set`, '1');
+    expect(msg.topic).toBe(`W/${idSiteNum}/battery/279/Relay/0/State`);
   });
 
   it('preserves multi-segment paths', () => {
-    const [msg] = routeFromHa('vrm/abc123/vebus/256/Ac/ActiveIn/CurrentLimit/set', '16');
-    expect(msg.topic).toBe('W/abc123/vebus/256/Ac/ActiveIn/CurrentLimit');
+    const [msg] = routeFromHa(`vrm/${idSiteNum}/vebus/256/Ac/ActiveIn/CurrentLimit/set`, '16');
+    expect(msg.topic).toBe(`W/${idSiteNum}/vebus/256/Ac/ActiveIn/CurrentLimit`);
   });
 
   it('returns [] for topics not starting with vrm/', () => {
@@ -94,50 +106,50 @@ describe('routeFromHa', () => {
   });
 
   it('returns [] for topics not ending with /set', () => {
-    expect(routeFromHa('vrm/abc123/battery/279/Relay/0/State', '1')).toEqual([]);
+    expect(routeFromHa(`vrm/${idSiteNum}/battery/279/Relay/0/State`, '1')).toEqual([]);
   });
 
   it('returns [] for topics with too few segments', () => {
-    expect(routeFromHa('vrm/abc123/battery/279/set', '1')).toEqual([]);
+    expect(routeFromHa(`vrm/${idSiteNum}/battery/279/set`, '1')).toEqual([]);
   });
 
   it('returns [] for empty payload', () => {
-    expect(routeFromHa('vrm/abc123/battery/279/Relay/0/State/set', '')).toEqual([]);
+    expect(routeFromHa(`vrm/${idSiteNum}/battery/279/Relay/0/State/set`, '')).toEqual([]);
   });
 
   // ── payload wrapping ─────────────────────────────────────────────────────
 
   it('coerces integer string payload to number', () => {
-    const [msg] = routeFromHa('vrm/abc123/battery/279/Relay/0/State/set', '1');
+    const [msg] = routeFromHa(`vrm/${idSiteNum}/battery/279/Relay/0/State/set`, '1');
     expect(msg.payload).toBe('{"value":1}');
   });
 
   it('coerces "0" to number 0, not string', () => {
-    const [msg] = routeFromHa('vrm/abc123/battery/279/Relay/0/State/set', '0');
+    const [msg] = routeFromHa(`vrm/${idSiteNum}/battery/279/Relay/0/State/set`, '0');
     expect(msg.payload).toBe('{"value":0}');
   });
 
   it('coerces decimal string to number', () => {
-    const [msg] = routeFromHa('vrm/abc123/vebus/256/Ac/ActiveIn/CurrentLimit/set', '25.5');
+    const [msg] = routeFromHa(`vrm/${idSiteNum}/vebus/256/Ac/ActiveIn/CurrentLimit/set`, '25.5');
     expect(msg.payload).toBe('{"value":25.5}');
   });
 
   it('coerces negative number', () => {
-    const [msg] = routeFromHa('vrm/abc123/vebus/256/Ac/ActiveIn/CurrentLimit/set', '-10');
+    const [msg] = routeFromHa(`vrm/${idSiteNum}/vebus/256/Ac/ActiveIn/CurrentLimit/set`, '-10');
     expect(msg.payload).toBe('{"value":-10}');
   });
 
   it('wraps non-numeric payload as a JSON string', () => {
-    const [msg] = routeFromHa('vrm/abc123/unknown/0/SomePath/set', 'hello');
+    const [msg] = routeFromHa(`vrm/${idSiteNum}/unknown/0/SomePath/set`, 'hello');
     expect(msg.payload).toBe('{"value":"hello"}');
   });
 
   // ── select entities ──────────────────────────────────────────────────────
 
   it('resolves vebus Mode options', () => {
-    expect(routeFromHa('vrm/abc123/vebus/256/Mode/set', 'Charger Only')[0].payload).toBe('{"value":1}');
-    expect(routeFromHa('vrm/abc123/vebus/256/Mode/set', 'Inverter Only')[0].payload).toBe('{"value":2}');
-    expect(routeFromHa('vrm/abc123/vebus/256/Mode/set', 'On')[0].payload).toBe('{"value":3}');
-    expect(routeFromHa('vrm/abc123/vebus/256/Mode/set', 'Off')[0].payload).toBe('{"value":4}');
+    expect(routeFromHa(`vrm/${idSiteNum}/vebus/256/Mode/set`, 'Charger Only')[0].payload).toBe('{"value":1}');
+    expect(routeFromHa(`vrm/${idSiteNum}/vebus/256/Mode/set`, 'Inverter Only')[0].payload).toBe('{"value":2}');
+    expect(routeFromHa(`vrm/${idSiteNum}/vebus/256/Mode/set`, 'On')[0].payload).toBe('{"value":3}');
+    expect(routeFromHa(`vrm/${idSiteNum}/vebus/256/Mode/set`, 'Off')[0].payload).toBe('{"value":4}');
   });
 });

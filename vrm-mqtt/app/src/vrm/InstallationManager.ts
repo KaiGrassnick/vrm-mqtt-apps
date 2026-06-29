@@ -6,14 +6,6 @@ import type { HaBrokerClient } from '../ha/HaBrokerClient';
 import type { DiscoveryPublisher } from '../ha/DiscoveryPublisher';
 import { routeFromHa } from '../ha/MessageRouter';
 
-/**
- * Substring that VRM appends to the `identifier` of an installation when it
- * has been created as a replacement for another one (e.g. after migrating the
- * underlying Venus device). Such identifiers contain spaces and other illegal
- * MQTT topic characters — we skip them entirely rather than bridging them.
- */
-const REPLACED_MARKER = 'USEDASREPLACEMENT';
-
 export interface InstallationManagerOptions {
   apiToken: string;
   userEmail: string;
@@ -27,8 +19,8 @@ export interface InstallationManagerOptions {
 export class InstallationManager {
   private readonly pool: VrmBrokerPool;
   private readonly connections = new Map<number, MqttBridgeConnection>();
-  /** Secondary index for O(1) portalId → connection lookups in routeHaCommand. */
-  private readonly connectionsByPortalId = new Map<string, MqttBridgeConnection>();
+  /** Secondary index for O(1) idSite → connection lookups in routeHaCommand. */
+  private readonly connectionsByIdSite = new Map<number, MqttBridgeConnection>();
   private readonly ha: HaBrokerClient;
   private readonly publisher: Pick<DiscoveryPublisher, 'removeInstallation' | 'publishAvailability' | 'publishInstallation'>;
   private readonly throttleIntervalMs: number;
@@ -53,9 +45,8 @@ export class InstallationManager {
   }
 
   async reconcile(installations: VrmInstallation[]): Promise<void> {
-    const isSkipped = (i: VrmInstallation): { skipped: boolean; reason: 'replaced' | 'disabled' | null } => {
+    const isSkipped = (i: VrmInstallation): { skipped: boolean; reason: 'disabled' | null } => {
       if (this.disabledInstallationIds.has(i.identifier)) return { skipped: true, reason: 'disabled' };
-      if (i.identifier.includes(REPLACED_MARKER)) return { skipped: true, reason: 'replaced' };
       return { skipped: false, reason: null };
     };
 
@@ -72,21 +63,21 @@ export class InstallationManager {
     for (const [idSite, conn] of this.connections) {
       if (!incomingIds.has(idSite)) {
         await conn.stop();
-        await this.publisher.removeInstallation(conn.identifier);
-        this.connectionsByPortalId.delete(conn.identifier);
+        await this.publisher.removeInstallation(conn.idSite);
+        this.connectionsByIdSite.delete(conn.idSite);
         this.connections.delete(idSite);
         console.log(`[Manager] Removed installation idSite=${idSite}`);
       }
     }
 
-    // Skipped installations (disabled or replaced) with no running connection
-    // (e.g. after a restart): clean up any retained HA discovery topics from
-    // the previous session so Home Assistant stops showing them.
+    // Disabled installations with no running connection (e.g. after a restart):
+    // clean up any retained HA discovery topics from the previous session so
+    // Home Assistant stops showing them.
     for (const inst of installations) {
       const { skipped, reason } = isSkipped(inst);
       if (skipped && !this.connections.has(inst.idSite)) {
         console.log(`[Manager] Purging HA discovery for ${reason} installation ${inst.name} (${inst.identifier})`);
-        await this.publisher.removeInstallation(inst.identifier);
+        await this.publisher.removeInstallation(inst.idSite);
       }
     }
 
@@ -101,6 +92,8 @@ export class InstallationManager {
           ha: this.ha,
           publisher: this.publisher,
           globalThrottle: this.globalThrottle,
+          getIdSite: (brokerPortalId): number | undefined =>
+            brokerPortalId === installation.brokerPortalId ? installation.idSite : undefined,
         });
         if (!this.suspended) {
           conn.start();
@@ -108,7 +101,7 @@ export class InstallationManager {
           await new Promise<void>((resolve) => setTimeout(resolve, this.installationStartupDelayMs));
         }
         this.connections.set(installation.idSite, conn);
-        this.connectionsByPortalId.set(installation.identifier, conn);
+        this.connectionsByIdSite.set(installation.idSite, conn);
         console.log(`[Manager] Added installation ${installation.name} (${installation.identifier}) @ ${installation.mqttHost}`);
       } else {
         existing.updateName(installation.name);
@@ -118,20 +111,29 @@ export class InstallationManager {
 
   /**
    * Route a command received from the HA broker back to the correct VRM installation.
-   * Called by HaBrokerClient.onCommand.
+   *
+   * HA topics from MessageRouter use the numeric idSite as the topic's `parts[1]`
+   * segment: `W/{idSite}/{service}/{instance}/{path}`. We look up the connection
+   * by idSite and rewrite that segment to the connection's brokerPortalId before
+   * publishing — keeping the bridge's VRM-side topic vocabulary independent of
+   * the HA-side idSite key.
    */
   routeHaCommand(topic: string, payload: string): void {
     for (const msg of routeFromHa(topic, payload)) {
-      // W/{portalId}/… — extract portalId to find the right connection
       const parts = msg.topic.split('/');
       if (parts[0] !== 'W' || parts.length < 4) continue;
-      const portalId = parts[1];
-      const conn = this.connectionsByPortalId.get(portalId);
-      if (conn) {
-        conn.publishToVrm(msg.topic, msg.payload);
-      } else {
-        console.warn(`[Manager] No connection found for portalId ${portalId} — dropping command`);
+      const idSite = Number(parts[1]);
+      if (!Number.isInteger(idSite)) {
+        console.warn(`[Manager] Dropping command with non-numeric idSite ${parts[1]}`);
+        continue;
       }
+      const conn = this.connectionsByIdSite.get(idSite);
+      if (!conn) {
+        console.warn(`[Manager] No connection found for idSite ${idSite} — dropping command`);
+        continue;
+      }
+      parts[1] = conn.brokerPortalId;
+      conn.publishToVrm(parts.join('/'), msg.payload);
     }
   }
 
@@ -154,11 +156,11 @@ export class InstallationManager {
   async shutdown(): Promise<void> {
     this.globalThrottle.stop();
     for (const conn of this.connections.values()) {
-      this.publisher.publishAvailability(conn.identifier, false);
+      this.publisher.publishAvailability(conn.idSite, false);
     }
     await Promise.all([...this.connections.values()].map((c) => c.stop()));
     this.connections.clear();
-    this.connectionsByPortalId.clear();
+    this.connectionsByIdSite.clear();
     await this.pool.destroyAll();
   }
 }

@@ -19,6 +19,8 @@ export interface MqttBridgeConnectionOptions {
   throttleIntervalMs?: number;
   /** Shared global throttle across all installations. If provided, throttleIntervalMs is ignored. */
   globalThrottle?: RollingMessageThrottle;
+  /** brokerPortalId → idSite lookup; undefined means "drop the message". */
+  getIdSite?: (brokerPortalId: string) => number | undefined;
 }
 
 export class MqttBridgeConnection {
@@ -28,6 +30,7 @@ export class MqttBridgeConnection {
   private readonly ha: HaBrokerClient;
   private readonly publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation'>;
   private readonly throttle: MessageThrottle | RollingMessageThrottle;
+  private readonly getIdSite: (brokerPortalId: string) => number | undefined;
   private readonly subscribeTopics: string[];
   private readonly keepaliveTopic: string;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -40,20 +43,21 @@ export class MqttBridgeConnection {
   private readonly boundHandleOffline: () => void;
   private readonly boundHandleReconnect: () => void;
 
-  constructor({ installation, pool, ha, publisher, throttleIntervalMs = 500, globalThrottle }: MqttBridgeConnectionOptions) {
+  constructor({ installation, pool, ha, publisher, throttleIntervalMs = 500, globalThrottle, getIdSite }: MqttBridgeConnectionOptions) {
     this.ha = ha;
     this.publisher = publisher;
     this.installation = installation;
     this.pool = pool;
     this.subscribeTopics = this.buildSubscribeTopics();
-    this.keepaliveTopic = `R/${installation.identifier}/keepalive`;
-    this.throttle = globalThrottle ?? new MessageThrottle(throttleIntervalMs, (topic, payload) => ha.publish(topic, payload));
+    this.keepaliveTopic = `R/${installation.brokerPortalId}/keepalive`;
+    this.throttle = globalThrottle ?? new MessageThrottle(throttleIntervalMs, (topic, payload): void => ha.publish(topic, payload));
+    this.getIdSite = getIdSite ?? ((): undefined => undefined);
 
-    this.boundHandleConnect = () => { this.handleConnect(); };
-    this.boundHandleMessage = (topic, payload) => { this.handleMessage(topic, payload); };
-    this.boundHandleError = (err) => { this.handleError(err); };
-    this.boundHandleOffline = () => { this.handleOffline(); };
-    this.boundHandleReconnect = () => {
+    this.boundHandleConnect = (): void => { this.handleConnect(); };
+    this.boundHandleMessage = (topic, payload): void => { this.handleMessage(topic, payload); };
+    this.boundHandleError = (err): void => { this.handleError(err); };
+    this.boundHandleOffline = (): void => { this.handleOffline(); };
+    this.boundHandleReconnect = (): void => {
       console.log(`[MQTT] Reconnecting for ${this.installation.name} (${this.installation.identifier})`);
     };
   }
@@ -102,7 +106,7 @@ export class MqttBridgeConnection {
   }
 
   private buildSubscribeTopics(): string[] {
-    const id = this.installation.identifier;
+    const id = this.installation.brokerPortalId;
     return [
       `N/${id}/system/0/Dc/Pv/Power`,
       `N/${id}/system/0/Dc/Battery/Soc`,
@@ -127,8 +131,8 @@ export class MqttBridgeConnection {
       }
     });
 
-    this.publisher.publishInstallation(this.installation.identifier, this.installation.name);
-    this.publisher.publishAvailability(this.installation.identifier, true);
+    this.publisher.publishInstallation(this.installation.idSite, this.installation.name);
+    this.publisher.publishAvailability(this.installation.idSite, true);
     this.sendKeepalive();
 
     if (this.keepaliveTimer !== null) clearInterval(this.keepaliveTimer);
@@ -161,11 +165,19 @@ export class MqttBridgeConnection {
     return this.installation.identifier;
   }
 
+  get brokerPortalId(): string {
+    return this.installation.brokerPortalId;
+  }
+
+  get idSite(): number {
+    return this.installation.idSite;
+  }
+
   private handleMessage(topic: string, payload: Buffer): void {
-    if (!topic.startsWith(`N/${this.installation.identifier}/`)) return;
+    if (!topic.startsWith(`N/${this.installation.brokerPortalId}/`)) return;
 
     const str = payload.toString();
-    for (const msg of routeFromVrm(topic, str)) {
+    for (const msg of routeFromVrm(topic, str, this.getIdSite)) {
       this.throttle.enqueue(msg.topic, msg.payload);
     }
   }
@@ -177,7 +189,7 @@ export class MqttBridgeConnection {
   updateName(newName: string): void {
     if (this.installation.name === newName) return;
     this.installation.name = newName;
-    this.publisher.publishInstallation(this.installation.identifier, newName);
+    this.publisher.publishInstallation(this.installation.idSite, newName);
   }
 
   private handleError(err: Error): void {
@@ -191,6 +203,6 @@ export class MqttBridgeConnection {
       this.keepaliveTimer = null;
     }
     this.throttle.flush();
-    this.publisher.publishAvailability(this.installation.identifier, false);
+    this.publisher.publishAvailability(this.installation.idSite, false);
   }
 }

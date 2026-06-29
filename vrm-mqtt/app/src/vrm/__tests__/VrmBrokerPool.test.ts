@@ -10,7 +10,7 @@ function makeMockClient(): Partial<MqttClient> & { endAsync: jest.Mock } {
 const mockConnect = jest.fn();
 
 jest.mock('mqtt', () => ({
-  connect: (...args: unknown[]) => mockConnect(...args),
+  connect: (...args: unknown[]): unknown => mockConnect(...args),
 }));
 
 import { VrmBrokerPool } from '../VrmBrokerPool';

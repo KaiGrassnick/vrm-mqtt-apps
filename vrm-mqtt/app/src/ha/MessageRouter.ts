@@ -28,7 +28,12 @@ export function parseVrmTopic(topic: string): ParsedVrmTopic | null {
 /**
  * Route an incoming VRM MQTT message to the local HA broker.
  *
- * N/{portalId}/{service}/{instance}/{path} → vrm/{portalId}/{service}/{instance}/{path}
+ * N/{brokerPortalId}/{service}/{instance}/{path} → vrm/{idSite}/{service}/{instance}/{path}
+ *
+ * The caller supplies `getIdSite` to translate the broker-side portalId to the
+ * HA-side numeric idSite. A `undefined` return means the broker portalId is
+ * not one this bridge currently tracks (e.g. an installation was removed) —
+ * drop the message silently rather than publishing to an unknown topic.
  *
  * Payload is forwarded verbatim — HA entities extract the value via
  * value_template: "{{ value_json.value }}".
@@ -38,14 +43,21 @@ export function parseVrmTopic(topic: string): ParsedVrmTopic | null {
  * undefined and breaks every value_template that references `value_json.value`.
  * HA marks the device unavailable via the bridge's availability_topic instead.
  *
- * Returns [] for topics that do not match the VRM N/… format, or for empty payloads.
+ * Returns [] for topics that do not match the VRM N/… format, for empty
+ * payloads, or when the broker portalId is unknown to the caller.
  */
-export function routeFromVrm(topic: string, payload: string): MqttMessage[] {
+export function routeFromVrm(
+  topic: string,
+  payload: string,
+  getIdSite: (brokerPortalId: string) => number | undefined,
+): MqttMessage[] {
   const parsed = parseVrmTopic(topic);
   if (!parsed) return [];
   if (payload === '') return [];
-  const { portalId, service, instance, path } = parsed;
-  return [{ topic: `vrm/${portalId}/${service}/${instance}/${path}`, payload }];
+  const idSite = getIdSite(parsed.portalId);
+  if (idSite === undefined) return [];
+  const { service, instance, path } = parsed;
+  return [{ topic: `vrm/${idSite}/${service}/${instance}/${path}`, payload }];
 }
 
 /**

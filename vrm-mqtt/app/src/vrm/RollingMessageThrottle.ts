@@ -99,6 +99,10 @@ export class RollingMessageThrottle {
       this.tick();
       this.reschedule();
     }, tickMs);
+    // Don't keep the event loop alive on the throttle alone. In production
+    // an MQTT client (or other ref'd handle) always outlives the timer;
+    // in tests the worker can exit cleanly when nothing else holds the loop.
+    this.timer.unref?.();
   }
 
   private tick(): void {

@@ -10,9 +10,16 @@ const installation: VrmInstallation = {
   idSite: 1,
   name: 'Test Site',
   identifier: 'test-portal-abcd1234',
+  brokerPortalId: 'test-portal-abcd1234',
   mqttHost: 'mqtt5.victronenergy.com',
   mqttWebHost: 'webmqtt5.victronenergy.com',
 };
+
+const { identifier: _PORTAL, brokerPortalId: PORTAL } = installation;
+
+const idSiteFor = (inst: VrmInstallation): ((brokerPortalId: string) => number | undefined) =>
+  (brokerPortalId: string): number | undefined =>
+    (brokerPortalId === inst.brokerPortalId ? inst.idSite : undefined);
 
 function makeMockClient(connected = false): EventEmitter & { connected: boolean; subscribe: jest.Mock; unsubscribe: jest.Mock; publish: jest.Mock; off: jest.Mock } {
   const emitter = new EventEmitter();
@@ -35,10 +42,10 @@ function makeMockClient(connected = false): EventEmitter & { connected: boolean;
   });
 }
 
-function makeMockHa() {
+function makeMockHa(): { publish: jest.Mock } {
   return { publish: jest.fn() };
 }
-function makeMockPublisher() {
+function makeMockPublisher(): { publishAvailability: jest.Mock; publishInstallation: jest.Mock } {
   return { publishAvailability: jest.fn(), publishInstallation: jest.fn() };
 }
 
@@ -121,15 +128,15 @@ describe('MqttBridgeConnection', () => {
 
       expect(client.subscribe).toHaveBeenCalledWith(
         expect.arrayContaining([
-          `N/${installation.identifier}/system/0/Dc/Pv/Power`,
-          `N/${installation.identifier}/system/0/Dc/Battery/Soc`,
-          `N/${installation.identifier}/system/0/Ac/Grid/+/Power`,
+          `N/${PORTAL}/system/0/Dc/Pv/Power`,
+          `N/${PORTAL}/system/0/Dc/Battery/Soc`,
+          `N/${PORTAL}/system/0/Ac/Grid/+/Power`,
         ]),
         { qos: 0 },
         expect.any(Function),
       );
       expect(client.publish).toHaveBeenCalledWith(
-        `R/${installation.identifier}/keepalive`,
+        `R/${PORTAL}/keepalive`,
         '',
         { qos: 0 },
         expect.any(Function),
@@ -155,7 +162,7 @@ describe('MqttBridgeConnection', () => {
 
       expect(client.subscribe).toHaveBeenCalledTimes(1);
       expect(client.publish).toHaveBeenCalledWith(
-        `R/${installation.identifier}/keepalive`,
+        `R/${PORTAL}/keepalive`,
         '',
         { qos: 0 },
         expect.any(Function),
@@ -164,7 +171,7 @@ describe('MqttBridgeConnection', () => {
   });
 
   describe('discovery published on connect', () => {
-    it('calls publishInstallation with portalId and name on connect', () => {
+    it('calls publishInstallation with idSite and name on connect', () => {
       const client = makeMockClient(false);
       const publisher = makeMockPublisher();
       const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: publisher as never });
@@ -173,7 +180,7 @@ describe('MqttBridgeConnection', () => {
       expect(publisher.publishInstallation).not.toHaveBeenCalled();
       client.emit('connect');
       expect(publisher.publishInstallation).toHaveBeenCalledWith(
-        installation.identifier,
+        installation.idSite,
         installation.name,
       );
     });
@@ -241,15 +248,15 @@ describe('MqttBridgeConnection', () => {
     it('delivers messages for the correct installation identifier', () => {
       const client = makeMockClient(true);
       const ha = makeMockHa();
-      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: ha as never, publisher: makeMockPublisher() as never });
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: ha as never, publisher: makeMockPublisher() as never, getIdSite: idSiteFor(installation) });
       conn.start();
       jest.advanceTimersByTime(500);
 
-      client.emit('message', `N/${installation.identifier}/system/0/Dc/Battery/Soc`, Buffer.from('{"value":42}'));
+      client.emit('message', `N/${PORTAL}/system/0/Dc/Battery/Soc`, Buffer.from('{"value":42}'));
       jest.advanceTimersByTime(500);
 
       expect(ha.publish).toHaveBeenCalledWith(
-        `vrm/${installation.identifier}/system/0/Dc/Battery/Soc`,
+        `vrm/${installation.idSite}/system/0/Dc/Battery/Soc`,
         '{"value":42}',
       );
     });
@@ -276,7 +283,7 @@ describe('MqttBridgeConnection', () => {
       await conn.stop();
 
       expect(client.unsubscribe).toHaveBeenCalledWith(
-        expect.arrayContaining([`N/${installation.identifier}/system/0/Dc/Pv/Power`]),
+        expect.arrayContaining([`N/${PORTAL}/system/0/Dc/Pv/Power`]),
         expect.any(Function),
       );
     });
@@ -331,7 +338,7 @@ describe('MqttBridgeConnection', () => {
 
       conn.updateName('Renamed Site');
       expect(publisher.publishInstallation).toHaveBeenCalledWith(
-        installation.identifier,
+        installation.idSite,
         'Renamed Site',
       );
     });
@@ -344,7 +351,7 @@ describe('MqttBridgeConnection', () => {
 
       conn.updateName('Early Rename');
       expect(publisher.publishInstallation).toHaveBeenCalledWith(
-        installation.identifier,
+        installation.idSite,
         'Early Rename',
       );
     });
@@ -365,10 +372,16 @@ describe('MqttBridgeConnection', () => {
   });
 
   describe('throttle behaviour', () => {
-    const portalId = installation.identifier;
+    const portalId = installation.brokerPortalId;
+    const idSite = installation.idSite;
     const INTERVAL = 100;
 
-    function makeThrottledConn() {
+    function makeThrottledConn(): {
+      client: ReturnType<typeof makeMockClient>;
+      ha: ReturnType<typeof makeMockHa>;
+      publisher: ReturnType<typeof makeMockPublisher>;
+      conn: MqttBridgeConnection;
+    } {
       const client = makeMockClient(false);
       const ha = makeMockHa();
       const publisher = makeMockPublisher();
@@ -378,13 +391,14 @@ describe('MqttBridgeConnection', () => {
         ha: ha as never,
         publisher: publisher as never,
         throttleIntervalMs: INTERVAL,
+        getIdSite: idSiteFor(installation),
       });
       conn.start();
       client.emit('connect');
       return { client, ha, publisher, conn };
     }
 
-    function emit(client: ReturnType<typeof makeMockClient>, topic: string, payload: string) {
+    function emit(client: ReturnType<typeof makeMockClient>, topic: string, payload: string): void {
       client.emit('message', topic, Buffer.from(payload));
     }
 
@@ -393,7 +407,7 @@ describe('MqttBridgeConnection', () => {
       emit(client, `N/${portalId}/system/0/Dc/Battery/Soc`, '{"value":80}');
       expect(ha.publish).not.toHaveBeenCalledWith(expect.stringContaining('vrm/'), expect.anything());
       jest.advanceTimersByTime(INTERVAL);
-      expect(ha.publish).toHaveBeenCalledWith(`vrm/${portalId}/system/0/Dc/Battery/Soc`, '{"value":80}');
+      expect(ha.publish).toHaveBeenCalledWith(`vrm/${idSite}/system/0/Dc/Battery/Soc`, '{"value":80}');
     });
 
     it('coalesces rapid updates for the same topic to a single publish', () => {
@@ -406,7 +420,7 @@ describe('MqttBridgeConnection', () => {
         ([t]: [string]) => t.startsWith('vrm/'),
       );
       expect(stateCalls).toHaveLength(1);
-      expect(stateCalls[0]).toEqual([`vrm/${portalId}/system/0/Dc/Battery/Soc`, '{"value":82}']);
+      expect(stateCalls[0]).toEqual([`vrm/${idSite}/system/0/Dc/Battery/Soc`, '{"value":82}']);
     });
 
     it('flushes buffered messages before publishing availability=offline', () => {
@@ -428,7 +442,7 @@ describe('MqttBridgeConnection', () => {
       emit(client, `N/${portalId}/system/0/Dc/Battery/Soc`, '{"value":80}');
       await conn.stop();
       expect(ha.publish).toHaveBeenCalledWith(
-        `vrm/${portalId}/system/0/Dc/Battery/Soc`,
+        `vrm/${idSite}/system/0/Dc/Battery/Soc`,
         '{"value":80}',
       );
     });
@@ -440,9 +454,88 @@ describe('MqttBridgeConnection', () => {
       client.emit('connect');
       jest.advanceTimersByTime(INTERVAL);
       expect(ha.publish).toHaveBeenCalledWith(
-        `vrm/${portalId}/system/0/Dc/Battery/Soc`,
+        `vrm/${idSite}/system/0/Dc/Battery/Soc`,
         '{"value":80}',
       );
+    });
+  });
+
+  describe('replaced installation (USEDASREPLACEMENT in identifier)', () => {
+    const replacedInstallation: VrmInstallation = {
+      idSite: 2,
+      name: 'Replaced Site',
+      identifier: 'samplePortalId - USEDASREPLACEMENT AT 1234567890',
+      brokerPortalId: 'samplePortalId',
+      mqttHost: 'mqtt7.victronenergy.com',
+      mqttWebHost: 'webmqtt7.victronenergy.com',
+    };
+
+    it('subscribes using brokerPortalId, not identifier', () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({
+        installation: replacedInstallation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: makeMockHa() as never,
+        publisher: makeMockPublisher() as never,
+      });
+      conn.start();
+      client.emit('connect');
+
+      expect(client.subscribe).toHaveBeenCalledWith(
+        expect.arrayContaining([`N/${replacedInstallation.brokerPortalId}/system/0/Dc/Pv/Power`]),
+        { qos: 0 },
+        expect.any(Function),
+      );
+      expect(client.subscribe).toHaveBeenCalledWith(
+        expect.not.arrayContaining([expect.stringContaining('USEDASREPLACEMENT')]),
+        { qos: 0 },
+        expect.any(Function),
+      );
+    });
+
+    it('sends keepalive to R/{brokerPortalId}/keepalive', () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({
+        installation: replacedInstallation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: makeMockHa() as never,
+        publisher: makeMockPublisher() as never,
+      });
+      conn.start();
+      client.emit('connect');
+
+      expect(client.publish).toHaveBeenCalledWith(
+        `R/${replacedInstallation.brokerPortalId}/keepalive`,
+        '',
+        { qos: 0 },
+        expect.any(Function),
+      );
+    });
+
+    it('ignores messages whose topic carries the suffixed identifier', () => {
+      // Spec invariant: handleMessage filters by brokerPortalId, never by the
+      // raw identifier. If a message arrives on N/{identifier-with-marker}/...,
+      // the connection drops it — the broker never publishes there, but the
+      // filter must hold defensively.
+      const client = makeMockClient(true);
+      const ha = makeMockHa();
+      const conn = new MqttBridgeConnection({
+        installation: replacedInstallation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: ha as never,
+        publisher: makeMockPublisher() as never,
+      });
+      conn.start();
+      jest.advanceTimersByTime(500);
+
+      client.emit(
+        'message',
+        `N/${replacedInstallation.identifier}/system/0/Dc/Battery/Soc`,
+        Buffer.from('{"value":42}'),
+      );
+      jest.advanceTimersByTime(500);
+
+      expect(ha.publish).not.toHaveBeenCalled();
     });
   });
 });

@@ -13,7 +13,7 @@ const MANUFACTURER = 'Victron Energy';
  * never been seen on the MQTT bus.
  */
 export function buildDiscoveryConfigs(
-  portalId: string,
+  idSite: number,
   service: VrmServiceName,
   instance: string | number,
   meta: DeviceMeta,
@@ -22,17 +22,17 @@ export function buildDiscoveryConfigs(
   const defs = SERVICE_ENTITY_DEFS[service];
   if (!defs) return [];
 
-  const device = buildDevice(portalId, service, instance, meta);
+  const device = buildDevice(idSite, service, instance, meta);
   const configs: HaDiscoveryConfig[] = [];
   const pathSet = new Set(observedPaths);
 
   for (const def of defs) {
     if (def.path.includes('{n}')) {
       for (const n of matchTemplateIndices(def.path, observedPaths)) {
-        configs.push(entityToConfig(portalId, service, instance, device, def, n));
+        configs.push(entityToConfig(idSite, service, instance, device, def, n));
       }
     } else if (pathSet.has(def.path)) {
-      configs.push(entityToConfig(portalId, service, instance, device, def));
+      configs.push(entityToConfig(idSite, service, instance, device, def));
     }
   }
 
@@ -65,7 +65,7 @@ function escapeRegex(s: string): string {
 }
 
 function buildDevice(
-  portalId: string,
+  idSite: number,
   service: VrmServiceName,
   instance: string | number,
   meta: DeviceMeta,
@@ -74,15 +74,15 @@ function buildDevice(
   return {
     identifiers: [
       isSystem
-        ? `vrm_${portalId}_system`
-        : `vrm_${portalId}_${service}_${instance}`,
+        ? `vrm_${idSite}_system`
+        : `vrm_${idSite}_${service}_${instance}`,
     ],
     name: meta.customName ?? meta.productName,
     manufacturer: MANUFACTURER,
     model: meta.productName,
     sw_version: meta.firmwareVersion,
     serial_number: meta.serial,
-    ...(isSystem ? {} : { via_device: `vrm_${portalId}_system` }),
+    ...(isSystem ? {} : { via_device: `vrm_${idSite}_system` }),
   };
 }
 
@@ -94,12 +94,12 @@ function pathSlug(path: string): string {
   return path.toLowerCase().replace(/\//g, '_').replace(/[^a-z0-9_]/g, '_');
 }
 
-function makeUniqueId(portalId: string, service: string, instance: string | number, path: string): string {
-  return `vrm_${portalId}_${service}_${instance}_${pathSlug(path)}`;
+function makeUniqueId(idSite: number, service: string, instance: string | number, path: string): string {
+  return `vrm_${idSite}_${service}_${instance}_${pathSlug(path)}`;
 }
 
-function makeStateTopic(portalId: string, service: string, instance: string | number, path: string): string {
-  return `vrm/${portalId}/${service}/${instance}/${path}`;
+function makeStateTopic(idSite: number, service: string, instance: string | number, path: string): string {
+  return `vrm/${idSite}/${service}/${instance}/${path}`;
 }
 
 /**
@@ -127,7 +127,7 @@ function enumValueTemplate(values: Array<{ value: number; label: string }>): str
 }
 
 function entityToConfig(
-  portalId: string,
+  idSite: number,
   service: VrmServiceName,
   instance: string | number,
   device: HaDevice,
@@ -136,8 +136,8 @@ function entityToConfig(
 ): HaDiscoveryConfig {
   const path = n !== undefined ? resolveN(def.path, n) : def.path;
   const name = n !== undefined ? resolveN(def.name, n) : def.name;
-  const uniqueId = makeUniqueId(portalId, service, instance, path);
-  const sTopic = makeStateTopic(portalId, service, instance, path);
+  const uniqueId = makeUniqueId(idSite, service, instance, path);
+  const sTopic = makeStateTopic(idSite, service, instance, path);
   const cTopic = `${sTopic}/set`;
   const base = { name, unique_id: uniqueId, default_entity_id: `${def.component}.${uniqueId}`, device };
 
