@@ -204,6 +204,7 @@ const SYSTEM_ENTITIES: EntityDef[] = [
   // AC PV
   { path: 'Ac/PvOnOutput/L{n}/Power', component: 'sensor', name: 'PV On Output L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Ac/PvOnOutput/L{n}/Current', component: 'sensor', name: 'PV On Output L{n} Current', unit: 'A', deviceClass: 'current', stateClass: 'measurement', precision: 1 },
+  { path: 'Ac/PvOnOutput/AggPower', component: 'sensor', name: 'PV On Output Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/PvOnOutput/L{n}/Power'] },
   { path: 'Ac/PvOnGrid/L{n}/Power', component: 'sensor', name: 'PV On Grid L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Ac/PvOnGrid/AggPower', component: 'sensor', name: 'PV On Grid Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/PvOnGrid/L{n}/Power'] },
   // ESS control limits

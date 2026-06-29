@@ -15,6 +15,10 @@
             {% set portal = eid.split('_')[1] %}
             {% set id = 'vrm_' ~ portal %}
             {% set dc_pv = states('sensor.' ~ id ~ '_system_0_dc_pv_power')                   | float(0) %}
+            {% set on_output_pv = states('sensor.' ~ id ~ '_system_0_ac_pvonoutput_aggpower') | float(0) %}
+            {% if on_output_pv < 0 %}
+              {% set on_output_pv = 0 %}
+            {% endif %}
             {% set on_grid_pv = states('sensor.' ~ id ~ '_system_0_ac_pvongrid_aggpower')     | float(0) %}
             {% if on_grid_pv < 0 %}
               {% set on_grid_pv = 0 %}

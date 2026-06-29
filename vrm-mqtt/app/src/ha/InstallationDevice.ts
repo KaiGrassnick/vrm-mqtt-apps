@@ -23,6 +23,9 @@ export const INSTALLATION_PATHS = [
   'Ac/PvOnGrid/L1/Power',
   'Ac/PvOnGrid/L2/Power',
   'Ac/PvOnGrid/L3/Power',
+  'Ac/PvOnOutput/L1/Power',
+  'Ac/PvOnOutput/L2/Power',
+  'Ac/PvOnOutput/L3/Power',
 ] as const;
 
 function toComponents(configs: HaDiscoveryConfig[]): Record<string, HaDeviceDiscoveryComponent> {

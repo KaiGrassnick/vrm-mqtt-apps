@@ -143,14 +143,14 @@ describe('MqttBridgeConnection', () => {
       );
     });
 
-    it('subscribes to exactly 8 topics', () => {
+    it('subscribes to exactly 9 topics', () => {
       const client = makeMockClient(false);
       const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
       conn.start();
       client.emit('connect');
 
       const topics = (client.subscribe as jest.Mock).mock.calls[0][0] as string[];
-      expect(topics).toHaveLength(8);
+      expect(topics).toHaveLength(9);
     });
   });
 
