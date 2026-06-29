@@ -42,11 +42,11 @@ describe('publishInstallation', () => {
     expect(payload.components).toBeDefined();
   });
 
-  it('payload has 24 components (19 raw paths + 5 L-phase aggregates)', () => {
+  it('payload has 7 components (3 battery + 4 aggregates)', () => {
     const { pub, ha } = publisher();
     pub.publishInstallation(ID_SITE, NAME);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
-    expect(Object.keys(payload.components)).toHaveLength(24);
+    expect(Object.keys(payload.components)).toHaveLength(7);
   });
 
   it('components use platform instead of component, and have no device field', () => {
@@ -68,13 +68,20 @@ describe('publishInstallation', () => {
     expect(soc.state_topic).toBe(`vrm/${ID_SITE}/system/0/Dc/Battery/Soc`);
   });
 
-  it('includes grid L1/L2/L3 components', () => {
+  it('includes the grid aggregate component', () => {
     const { pub, ha } = publisher();
     pub.publishInstallation(ID_SITE, NAME);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
-    expect(payload.components['system_0_ac_grid_l1_power']).toBeDefined();
-    expect(payload.components['system_0_ac_grid_l2_power']).toBeDefined();
-    expect(payload.components['system_0_ac_grid_l3_power']).toBeDefined();
+    expect(payload.components['system_0_z_aggregate_ac_grid_power']).toBeDefined();
+  });
+
+  it('includes the remaining custom aggregate components', () => {
+    const { pub, ha } = publisher();
+    pub.publishInstallation(ID_SITE, NAME);
+    const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
+    expect(payload.components['system_0_z_aggregate_ac_consumption_power']).toBeDefined();
+    expect(payload.components['system_0_z_aggregate_ac_genset_power']).toBeDefined();
+    expect(payload.components['system_0_z_aggregate_pv_power']).toBeDefined();
   });
 
   it('is idempotent: no re-publish when name unchanged', () => {

@@ -1,32 +1,7 @@
 import { buildDiscoveryConfigs } from './DiscoveryConfigBuilder';
+import { CUSTOM_AGGREGATE_DEFS } from './entityDefs';
+import { getObservedPaths } from './observedPaths';
 import type { HaComponent, HaDeviceDiscoveryComponent, HaDeviceDiscoveryPayload, HaDiscoveryConfig } from './types';
-
-/**
- * The 13 pre-expanded system/0 paths that form the installation summary device.
- * Used as `observedPaths` for buildDiscoveryConfigs (which resolves L{n} templates)
- * and to derive MQTT subscription topics.
- */
-export const INSTALLATION_PATHS = [
-  'Dc/Pv/Power',
-  'Dc/Battery/Soc',
-  'Dc/Battery/Voltage',
-  'Dc/Battery/State',
-  'Ac/Grid/L1/Power',
-  'Ac/Grid/L2/Power',
-  'Ac/Grid/L3/Power',
-  'Ac/Consumption/L1/Power',
-  'Ac/Consumption/L2/Power',
-  'Ac/Consumption/L3/Power',
-  'Ac/Genset/L1/Power',
-  'Ac/Genset/L2/Power',
-  'Ac/Genset/L3/Power',
-  'Ac/PvOnGrid/L1/Power',
-  'Ac/PvOnGrid/L2/Power',
-  'Ac/PvOnGrid/L3/Power',
-  'Ac/PvOnOutput/L1/Power',
-  'Ac/PvOnOutput/L2/Power',
-  'Ac/PvOnOutput/L3/Power',
-] as const;
 
 function toComponents(configs: HaDiscoveryConfig[]): Record<string, HaDeviceDiscoveryComponent> {
   const result: Record<string, HaDeviceDiscoveryComponent> = {};
@@ -41,7 +16,9 @@ function toComponents(configs: HaDiscoveryConfig[]): Record<string, HaDeviceDisc
 
 /**
  * Build the HA device discovery payload for one VRM installation.
- * One device, 13 fixed summary entities, all on system/0.
+ *
+ * The set of entity configs is derived from the entity defs and custom
+ * aggregates — see `getObservedPaths` for the derivation rule.
  */
 export function buildInstallationDiscovery(
   idSite: number,
@@ -49,7 +26,11 @@ export function buildInstallationDiscovery(
   appVersion: string,
 ): HaDeviceDiscoveryPayload {
   const meta = { productName: 'Victron Energy', customName: installationName };
-  const configs = buildDiscoveryConfigs(idSite, 'system', 0, meta, [...INSTALLATION_PATHS]);
+  const configs = buildDiscoveryConfigs(
+    idSite, 'system', 0, meta,
+    getObservedPaths(),
+    CUSTOM_AGGREGATE_DEFS.system ?? [],
+  );
 
   return {
     device: {
