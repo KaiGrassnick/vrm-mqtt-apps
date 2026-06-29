@@ -1,4 +1,20 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.7
+- Retain every bridged VRM state value on the local broker so Home Assistant
+  restarts and VRM-side reconnects no longer show entities as `unknown` /
+  `null` / `0`. On installation removal, retained state for that installation
+  is cleared.
+
+## 0.1.6
+- Introduce rolling update to reduce spikes because of batch loads
+- replace installationId with siteId
+
+## 0.1.5
+- Spread VRM → HA publish load evenly across the throttle interval.
+  Internal `GlobalMessageThrottle` replaced with `RollingMessageThrottle`
+  that shards by installation; reduces per-cycle publish bursts on
+  Home Assistant for fleets with many installations.
+
 ## 0.1.4
 - disable apparmor
 

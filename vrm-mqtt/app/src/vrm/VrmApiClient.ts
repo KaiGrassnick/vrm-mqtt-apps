@@ -1,4 +1,5 @@
 import { VrmApiError, VrmApiAuthError } from '../errors';
+import { toBrokerPortalId } from './portalId';
 import type {
   VrmMeResponse,
   VrmUser,
@@ -33,13 +34,25 @@ export class VrmApiClient {
     const data = await this.get<VrmInstallationsResponse>(
       `/users/${userId}/installations?extended=1`,
     );
-    return data.records.map((r) => ({
-      idSite: r.idSite,
-      name: r.name,
-      identifier: r.identifier,
-      mqttHost: r.mqtt_host,
-      mqttWebHost: r.mqtt_webhost,
-    }));
+    const installations: VrmInstallation[] = [];
+    for (const r of data.records) {
+      const brokerPortalId = toBrokerPortalId(r.identifier);
+      if (brokerPortalId === '') {
+        console.warn(
+          `[VRM] Dropping installation idSite=${r.idSite}: empty brokerPortalId after derivation`,
+        );
+        continue;
+      }
+      installations.push({
+        idSite: r.idSite,
+        name: r.name,
+        identifier: r.identifier,
+        brokerPortalId,
+        mqttHost: r.mqtt_host,
+        mqttWebHost: r.mqtt_webhost,
+      });
+    }
+    return installations;
   }
 
   private async get<T>(path: string): Promise<T> {

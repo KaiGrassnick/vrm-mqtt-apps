@@ -10,12 +10,18 @@ import packageJson from '../package.json';
 // it here avoids re-reading the file for every DiscoveryPublisher.
 
 let pollInProgress = false;
+let legacyPurgedOnce = false;
 // Singleton module state — shared across every pollInstallations call.
+// `legacyPurgedOnce` gates the one-shot migration that clears any retained
+// legacy identifier-keyed messages from previous (pre-idSite) versions of
+// the bridge. Once cleared, the legacy topics are gone permanently —
+// subsequent polls don't need to re-publish empty retained.
 
 export async function pollInstallations(
   client: VrmApiClient,
   manager: InstallationManager,
   user: VrmUser,
+  publisher: DiscoveryPublisher,
 ): Promise<void> {
   if (pollInProgress) {
     console.log('[Main] Poll already in progress, skipping tick');
@@ -26,7 +32,11 @@ export async function pollInstallations(
     const installations: VrmInstallation[] = await client.getInstallations(user.id);
     console.log(`[VRM] Found ${installations.length} installation(s)`);
     for (const inst of installations) {
-      console.log(`[VRM]   - ${inst.name} (${inst.identifier}) @ ${inst.mqttHost}`);
+      console.log(`[VRM]   - ${inst.name} (${inst.identifier} -> brokerPortalId=${inst.brokerPortalId}) @ ${inst.mqttHost}`);
+    }
+    if (!legacyPurgedOnce) {
+      await publisher.purgeLegacyDiscovery(installations);
+      legacyPurgedOnce = true;
     }
     await manager.reconcile(installations);
   } finally {
@@ -77,17 +87,19 @@ async function main(): Promise<void> {
     installationStartupDelayMs: config.vrm.installationStartupDelayMs,
   });
 
-  ha.onConnect = () => { manager.resume(); };
-  ha.onOffline = () => { void manager.suspend(); };
-  ha.onBirth = () => {
+  ha.onConnect = (): void => { manager.resume(); };
+  ha.onOffline = (): void => { void manager.suspend(); };
+  ha.onBirth = (): void => {
     console.log('[HA] Birth message received — re-publishing discovery configs');
     publisher.onHaBirth();
   };
-  ha.onCommand = (topic, payload) => { manager.routeHaCommand(topic, payload); };
+  ha.onCommand = (topic, payload): void => { manager.routeHaCommand(topic, payload); };
 
   ha.start();
 
-  let pollTimer: ReturnType<typeof setInterval>;
+  const pollTimer = setInterval(() => {
+    pollInstallations(client, manager, user, publisher).catch(handlePollError);
+  }, config.vrm.pollIntervalMs);
 
   const shutdown = async (): Promise<void> => {
     console.log('[VRM] Shutting down...');
@@ -103,11 +115,7 @@ async function main(): Promise<void> {
 
   console.log(`[VRM] Starting VRM MQTT Bridge (poll interval: ${config.vrm.pollIntervalMs}ms)`);
 
-  await pollInstallations(client, manager, user).catch(handlePollError);
-
-  pollTimer = setInterval(() => {
-    pollInstallations(client, manager, user).catch(handlePollError);
-  }, config.vrm.pollIntervalMs);
+  await pollInstallations(client, manager, user, publisher).catch(handlePollError);
 }
 
 main().catch((err: unknown) => {

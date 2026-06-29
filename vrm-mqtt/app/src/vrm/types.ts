@@ -151,6 +151,7 @@ export interface VrmInstallation {
   idSite: number;
   name: string;
   identifier: string;
+  brokerPortalId: string;
   mqttHost: string;
   mqttWebHost: string;
 }

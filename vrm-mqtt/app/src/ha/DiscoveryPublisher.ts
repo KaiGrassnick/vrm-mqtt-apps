@@ -1,5 +1,6 @@
 import type { HaBrokerClient } from './HaBrokerClient';
 import { buildInstallationDiscovery } from './InstallationDevice';
+import type { VrmInstallation } from '../vrm/types';
 
 interface PublishedInstallation {
   discoveryTopic: string;
@@ -18,7 +19,7 @@ export class DiscoveryPublisher {
 
   private readonly ha: HaBrokerClient;
   private readonly appVersion: string;
-  private readonly published = new Map<string, PublishedInstallation>();
+  private readonly published = new Map<number, PublishedInstallation>();
 
   constructor(ha: HaBrokerClient, appVersion: string) {
     this.ha = ha;
@@ -29,36 +30,46 @@ export class DiscoveryPublisher {
    * Build and publish the single-device discovery payload for one installation.
    * No-ops if the name is unchanged (idempotent on reconnect).
    */
-  publishInstallation(portalId: string, installationName: string): void {
-    const existing = this.published.get(portalId);
+  publishInstallation(idSite: number, installationName: string): void {
+    const existing = this.published.get(idSite);
     if (existing && existing.name === installationName) return;
 
-    const topic = `homeassistant/device/vrm_${portalId}/config`;
-    const payload = JSON.stringify(buildInstallationDiscovery(portalId, installationName, this.appVersion));
-    this.ha.publish(topic, payload, true);
-    this.published.set(portalId, { discoveryTopic: topic, payload, name: installationName });
+    const discoveryTopic = `homeassistant/device/vrm_${idSite}/config`;
+    const payload = JSON.stringify(buildInstallationDiscovery(idSite, installationName, this.appVersion));
+    this.ha.publish(discoveryTopic, payload, true);
+    this.published.set(idSite, {
+      discoveryTopic,
+      payload,
+      name: installationName,
+    });
   }
 
   /** Publish online/offline to the installation-level availability topic (retained). */
-  publishAvailability(portalId: string, online: boolean): void {
-    this.ha.publish(`vrm/${portalId}/availability`, online ? 'online' : 'offline', true);
+  publishAvailability(idSite: number, online: boolean): void {
+    this.ha.publish(`vrm/${idSite}/availability`, online ? 'online' : 'offline', true);
   }
 
   /** Remove one installation from HA by clearing its retained discovery topic. */
-  async removeInstallation(portalId: string): Promise<void> {
-    const entry = this.published.get(portalId);
+  async removeInstallation(idSite: number): Promise<void> {
+    const entry = this.published.get(idSite);
     if (entry) {
       this.ha.publish(entry.discoveryTopic, '', true);
-      this.published.delete(portalId);
+      this.published.delete(idSite);
     } else {
       // After a restart this.published is empty — directly clear the known deterministic topic.
-      const topic = `homeassistant/device/vrm_${portalId}/config`;
+      const topic = `homeassistant/device/vrm_${idSite}/config`;
       const retained = await this.ha.collectRetained(topic);
       for (const { topic: t, payload } of retained) {
-        if (payload !== '') this.ha.publish(t, '', true);
+        // Defensive: only clear when the broker returned the EXACT topic we
+        // asked about. Don't trust unrelated topics the broker may surface
+        // (e.g. accidental wildcard expansion, live messages captured during
+        // the 300 ms collectRetained window).
+        if (payload !== '' && t === topic) {
+          this.ha.publish(t, '', true);
+        }
       }
     }
-    this.publishAvailability(portalId, false);
+    this.publishAvailability(idSite, false);
   }
 
   /**
@@ -79,12 +90,43 @@ export class DiscoveryPublisher {
       if (nextIndex < entries.length) {
         setTimeout(() => publishBatch(nextIndex), DiscoveryPublisher.BATCH_DELAY_MS).unref();
       } else {
-        for (const portalId of this.published.keys()) {
-          this.publishAvailability(portalId, true);
+        for (const idSite of this.published.keys()) {
+          this.publishAvailability(idSite, true);
         }
       }
     };
 
     publishBatch(0);
+  }
+
+  /**
+   * One-time purge of legacy (identifier-keyed) HA discovery and availability
+   * messages from a previous release. Called once before the first reconcile
+   * so an upgrading user doesn't accumulate dead devices.
+   *
+   * Implementation: publish empty retained directly to each legacy topic.
+   * Empty retained on a topic without a retained payload is a no-op for HA's
+   * discovery semantics; on a real legacy topic it clears the device.
+   *
+   * Why no read-then-publish: collecting retained messages requires a 300 ms
+   * subscribe window per topic, which at fleet scale (60 s for 100
+   * installations, ~2 min for 200) added per-poll latency without value,
+   * because the clear (publish empty retained) is idempotent and safe to fire
+   * unconditionally.
+   *
+   * Idempotent: a fresh install publishes empty retained to never-existed
+   * topics; HA treats that as 'no device here'.
+   */
+  async purgeLegacyDiscovery(installations: readonly VrmInstallation[]): Promise<void> {
+    for (const inst of installations) {
+      const legacyTopics = [
+        `homeassistant/device/vrm_${inst.identifier}/config`,
+        `vrm/${inst.identifier}/availability`,
+      ] as const;
+      for (const topic of legacyTopics) {
+        this.ha.publish(topic, '', true);
+      }
+    }
+    console.log(`[Discovery] Purged legacy HA topics for ${installations.length} installation(s)`);
   }
 }

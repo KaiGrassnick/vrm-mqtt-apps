@@ -4,6 +4,10 @@ const ORIGINAL_ENV = process.env;
 
 function reloadConfig(): typeof import('../config') {
   jest.resetModules();
+  // `require` is intentional here — jest.resetModules() requires a fresh
+  // module load via the CJS require path, not a static ESM import (which is
+  // hoisted and cached).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('../config');
 }
 

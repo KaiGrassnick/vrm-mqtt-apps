@@ -99,6 +99,7 @@ describe('VrmApiClient', () => {
         idSite: 42,
         name: 'Home Solar',
         identifier: 'test-portal-efgh5678',
+        brokerPortalId: 'test-portal-efgh5678',
         mqttHost: 'mqtt5.victronenergy.com',
         mqttWebHost: 'mqtt5.victronenergy.com',
       });
@@ -128,6 +129,90 @@ describe('VrmApiClient', () => {
     it('throws VrmApiAuthError on 401', async () => {
       mockFetch.mockResolvedValueOnce(makeFetchResponse({ error: 'Unauthorized' }, 401));
       await expect(client.getInstallations(1)).rejects.toBeInstanceOf(VrmApiAuthError);
+    });
+  });
+
+  describe('getInstallations derivation', () => {
+    it('returns brokerPortalId equal to identifier when no marker is present', async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeFetchResponse({
+          records: [
+            {
+              idSite: 1,
+              name: 'Site',
+              identifier: 'samplePortalId',
+              mqtt_host: 'mqtt5.example',
+              mqtt_webhost: 'webmqtt5.example',
+            },
+          ],
+          success: true,
+        }),
+      );
+
+      const installations = await client.getInstallations(42);
+
+      expect(installations).toHaveLength(1);
+      expect(installations[0].identifier).toBe('samplePortalId');
+      expect(installations[0].brokerPortalId).toBe('samplePortalId');
+    });
+
+    it('strips the USEDASREPLACEMENT suffix from brokerPortalId', async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeFetchResponse({
+          records: [
+            {
+              idSite: 2,
+              name: 'Replaced',
+              identifier: 'samplePortalId - USEDASREPLACEMENT AT 1234567890',
+              mqtt_host: 'mqtt7.example',
+              mqtt_webhost: 'webmqtt7.example',
+            },
+          ],
+          success: true,
+        }),
+      );
+
+      const installations = await client.getInstallations(42);
+
+      expect(installations).toHaveLength(1);
+      expect(installations[0].identifier).toBe('samplePortalId - USEDASREPLACEMENT AT 1234567890');
+      expect(installations[0].brokerPortalId).toBe('samplePortalId');
+    });
+
+    it('drops records whose brokerPortalId derivation is empty and warns', async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeFetchResponse({
+          records: [
+            {
+              idSite: 99,
+              name: 'Bad',
+              identifier: 'USEDASREPLACEMENT AT 1',
+              mqtt_host: 'mqtt.example',
+              mqtt_webhost: 'webmqtt.example',
+            },
+            {
+              idSite: 100,
+              name: 'Good',
+              identifier: 'samplePortalId',
+              mqtt_host: 'mqtt.example',
+              mqtt_webhost: 'webmqtt.example',
+            },
+          ],
+          success: true,
+        }),
+      );
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      const installations = await client.getInstallations(1);
+
+      expect(installations).toHaveLength(1);
+      expect(installations[0].idSite).toBe(100);
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[VRM] Dropping installation idSite=99: empty brokerPortalId after derivation',
+      );
+
+      warnSpy.mockRestore();
     });
   });
 

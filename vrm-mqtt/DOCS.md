@@ -25,7 +25,7 @@ Home Assistant Mosquitto broker using MQTT discovery.
 | `vrm_poll_interval_ms` | no | `300000` | How often to poll the installation list (ms). |
 | `vrm_disabled_installation_ids` | no | empty | Comma-separated IDs to skip. |
 | `vrm_installation_startup_delay_ms` | no | `500` | Stagger between per-installation connects (ms). |
-| `vrm_throttle_interval_ms` | no | `500` | Cross-installation message coalescing flush (ms; `0` disables). |
+| `vrm_throttle_interval_ms` | no | `500` | Window (ms) for cross-installation message coalescing; `0` disables. Publishes are spread evenly across this window across all installations, so broker load scales smoothly with the fleet size. |
 | `ha_mqtt_host` | no | `core-mosquitto` | HA MQTT broker host. Auto-detected from the MQTT service if available. |
 | `ha_mqtt_port` | no | `1883` | HA MQTT broker port. |
 | `ha_mqtt_username` | no | empty | MQTT username (only needed for non-anonymous brokers). |

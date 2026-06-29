@@ -1,6 +1,6 @@
 {
   "name": "vrm-mqtt",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "description": "Bridges Victron VRM installations to Home Assistant Mosquitto MQTT",
   "private": true,
   "main": "dist/index.js",
@@ -21,6 +21,7 @@
     "mqtt": "^5.15.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/jest": "^29.5.0",
     "@types/node": "^26.0.1",
     "@typescript-eslint/eslint-plugin": "^8.62.0",
