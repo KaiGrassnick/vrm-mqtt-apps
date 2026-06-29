@@ -19,6 +19,15 @@ interface EntityDefBase {
    * through to the entity name, e.g. `AC L{n} Power` → "AC L2 Power".
    */
   name: string;
+  /**
+   * When true, the bridge subscribes to the VRM topic (when needed), emits an
+   * HA discovery config, and publishes the value to HA. When false or omitted,
+   * the entity may still be subscribed as an aggregate source but never
+   * appears in HA.
+   *
+   * Default: false. New entities must explicitly opt in.
+   */
+  forward?: boolean;
 }
 
 export interface SensorEntityDef extends EntityDefBase {
@@ -29,20 +38,35 @@ export interface SensorEntityDef extends EntityDefBase {
   precision?: number;
   /** Populated when deviceClass is 'enum' — used to build the value_template. */
   enumValues?: Array<{ value: number; label: string }>;
-  /**
-   * If set, this sensor publishes the SUM of the numeric values from the
-   * listed source paths. Source paths may use `{n}` (expanded to the same
-   * set of indices that match the template) or be literal paths.
-   *
-   * The aggregate is the sum of source values that have been observed at
-   * least once — a single-phase installation publishes a one-phase sum,
-   * a three-phase installation publishes a three-phase sum. The aggregate
-   * target topic receives no value if no source has ever reported.
-   *
-   * Typical use: aggregate per-phase L{n}/Power readings into a single
-   * total-power entity (e.g. `Ac/Grid/AggPower`).
-   */
-  aggregateFrom?: string[];
+}
+
+/**
+ * A derived sensor whose value is the sum of one or more source paths on the
+ * VRM bus. Aggregate entities live in `CUSTOM_AGGREGATE_DEFS` (not in the
+ * normal `SERVICE_ENTITY_DEFS` array) and have their own type so `aggregateFrom`
+ * cannot be attached to a regular sensor by accident.
+ *
+ * Source paths may use `{n}` (expanded to indices 1, 2, 3) or be literal paths
+ * (e.g. `Dc/Pv/Power`). The aggregate is the sum of source values that have
+ * been observed at least once — a single-phase installation publishes a
+ * one-phase sum, a three-phase installation publishes a three-phase sum.
+ *
+ * Aggregate entities MUST be subscribed for their sources to be observed,
+ * regardless of their own `forward` flag.
+ */
+export interface CustomAggregateEntityDef {
+  /** VRM dbus path the aggregate is published on, e.g. 'Z/Aggregate/Ac/Grid/Power'. */
+  path: string;
+  /** Human-readable name shown in Home Assistant. */
+  name: string;
+  /** Required. Source paths to sum. Templates use `{n}` → 1, 2, 3. */
+  aggregateFrom: string[];
+  unit?: string;
+  deviceClass?: HaSensorDeviceClass;
+  stateClass?: HaStateClass;
+  precision?: number;
+  /** Default false. When true, emit HA discovery and publish the value. */
+  forward?: boolean;
 }
 
 export interface BinarySensorEntityDef extends EntityDefBase {
@@ -165,14 +189,14 @@ const VEBUS_CHARGE_STATE_ENUM = [
 
 const SYSTEM_ENTITIES: EntityDef[] = [
   // DC / battery summary
-  { path: 'Dc/Battery/Soc', component: 'sensor', name: 'Battery SOC', unit: '%', deviceClass: 'battery', stateClass: 'measurement', precision: 1 },
-  { path: 'Dc/Battery/Voltage', component: 'sensor', name: 'Battery Voltage', unit: 'V', deviceClass: 'voltage', stateClass: 'measurement', precision: 3 },
+  { path: 'Dc/Battery/Soc', component: 'sensor', name: 'Battery SOC', unit: '%', deviceClass: 'battery', stateClass: 'measurement', precision: 1, forward: true },
+  { path: 'Dc/Battery/Voltage', component: 'sensor', name: 'Battery Voltage', unit: 'V', deviceClass: 'voltage', stateClass: 'measurement', precision: 3, forward: true },
   { path: 'Dc/Battery/Current', component: 'sensor', name: 'Battery Current', unit: 'A', deviceClass: 'current', stateClass: 'measurement', precision: 1 },
   { path: 'Dc/Battery/Power', component: 'sensor', name: 'Battery Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Dc/Battery/TimeToGo', component: 'sensor', name: 'Battery Time To Go', unit: 's', deviceClass: 'duration' },
   { path: 'Dc/Battery/Temperature', component: 'sensor', name: 'Battery Temperature', unit: '°C', deviceClass: 'temperature', stateClass: 'measurement', precision: 1 },
   { path: 'Dc/Battery/ConsumedAmphours', component: 'sensor', name: 'Battery Consumed Amp Hours', unit: 'Ah', stateClass: 'measurement', precision: 1 },
-  { path: 'Dc/Battery/State', component: 'sensor', name: 'Battery State', deviceClass: 'enum', enumValues: BATTERY_STATE_ENUM },
+  { path: 'Dc/Battery/State', component: 'sensor', name: 'Battery State', deviceClass: 'enum', enumValues: BATTERY_STATE_ENUM, forward: true },
   // DC power sources
   { path: 'Dc/Pv/Power', component: 'sensor', name: 'PV Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Dc/Pv/Current', component: 'sensor', name: 'PV Current', unit: 'A', deviceClass: 'current', stateClass: 'measurement', precision: 1 },
@@ -187,7 +211,6 @@ const SYSTEM_ENTITIES: EntityDef[] = [
   // AC consumption
   { path: 'Ac/Consumption/L{n}/Power', component: 'sensor', name: 'AC Consumption L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Ac/Consumption/L{n}/Current', component: 'sensor', name: 'AC Consumption L{n} Current', unit: 'A', deviceClass: 'current', stateClass: 'measurement', precision: 1 },
-  { path: 'Ac/Consumption/AggPower', component: 'sensor', name: 'AC Consumption Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/Consumption/L{n}/Power'] },
   { path: 'Ac/ConsumptionOnInput/L{n}/Power', component: 'sensor', name: 'AC Consumption On Input L{n}', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Ac/ConsumptionOnOutput/L{n}/Power', component: 'sensor', name: 'AC Consumption On Output L{n}', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   // AC active input
@@ -197,16 +220,12 @@ const SYSTEM_ENTITIES: EntityDef[] = [
   // AC grid
   { path: 'Ac/Grid/L{n}/Power', component: 'sensor', name: 'Grid L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Ac/Grid/L{n}/Current', component: 'sensor', name: 'Grid L{n} Current', unit: 'A', deviceClass: 'current', stateClass: 'measurement', precision: 1 },
-  { path: 'Ac/Grid/AggPower', component: 'sensor', name: 'Grid Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/Grid/L{n}/Power'] },
   // AC genset
   { path: 'Ac/Genset/L{n}/Power', component: 'sensor', name: 'Generator L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
-  { path: 'Ac/Genset/AggPower', component: 'sensor', name: 'Generator Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/Genset/L{n}/Power'] },
   // AC PV
   { path: 'Ac/PvOnOutput/L{n}/Power', component: 'sensor', name: 'PV On Output L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Ac/PvOnOutput/L{n}/Current', component: 'sensor', name: 'PV On Output L{n} Current', unit: 'A', deviceClass: 'current', stateClass: 'measurement', precision: 1 },
-  { path: 'Ac/PvOnOutput/AggPower', component: 'sensor', name: 'PV On Output Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/PvOnOutput/L{n}/Power'] },
   { path: 'Ac/PvOnGrid/L{n}/Power', component: 'sensor', name: 'PV On Grid L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
-  { path: 'Ac/PvOnGrid/AggPower', component: 'sensor', name: 'PV On Grid Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/PvOnGrid/L{n}/Power'] },
   // ESS control limits
   { path: 'Control/ActiveSocLimit', component: 'sensor', name: 'Active SOC Limit', unit: '%', stateClass: 'measurement', precision: 1 },
   { path: 'Control/ScheduledSoc', component: 'sensor', name: 'Scheduled SOC', unit: '%', stateClass: 'measurement', precision: 1 },
@@ -311,6 +330,31 @@ const PLATFORM_ENTITIES: EntityDef[] = [
   { path: 'Notifications/NumberOfActiveInformations', component: 'sensor', name: 'Active Informations', stateClass: 'measurement' },
   { path: 'Notifications/NumberOfUnAcknowledgedAlarms', component: 'sensor', name: 'Unacknowledged Alarms', stateClass: 'measurement' },
 ];
+
+// ── Custom aggregates registry ────────────────────────────────────────────────
+
+const CUSTOM_AGGREGATES: CustomAggregateEntityDef[] = [
+  { path: 'Z/Aggregate/Ac/Consumption/Power', name: 'AC Consumption Aggregate Power',
+    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
+    aggregateFrom: ['Ac/Consumption/L{n}/Power'], forward: true },
+  { path: 'Z/Aggregate/Ac/Grid/Power', name: 'Grid Aggregate Power',
+    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
+    aggregateFrom: ['Ac/Grid/L{n}/Power'], forward: true },
+  { path: 'Z/Aggregate/Ac/Genset/Power', name: 'Generator Aggregate Power',
+    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
+    aggregateFrom: ['Ac/Genset/L{n}/Power'], forward: true },
+  // Combined PV total — DC + both AC PV sources.
+  // Supersedes the dropped Ac/PvOnOutput/AggPower and Ac/PvOnGrid/AggPower.
+  { path: 'Z/Aggregate/Pv/Power', name: 'PV Aggregate Power',
+    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
+    aggregateFrom: ['Dc/Pv/Power', 'Ac/PvOnOutput/L{n}/Power', 'Ac/PvOnGrid/L{n}/Power'],
+    forward: true },
+];
+
+export const CUSTOM_AGGREGATE_DEFS: Partial<Record<VrmServiceName,
+  readonly CustomAggregateEntityDef[]>> = {
+  system: CUSTOM_AGGREGATES,
+};
 
 // ── Service → entity lookup ───────────────────────────────────────────────────
 
