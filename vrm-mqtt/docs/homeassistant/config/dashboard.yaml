@@ -15,18 +15,22 @@ views:
               - name: Installation
                 data: installations.name
                 align: left
-                footer_type: text
-                footer_text: Total
+                footer_type: count
+                footer_modify: "'Total (' + x + ')'"
               - name: SoC
                 data: installations.soc
                 align: right
                 suffix: ' %'
                 modify: Math.round(x)
+                footer_type: average
+                footer_modify: Math.round(x)
               - name: Battery Voltage
                 data: installations.battery_voltage
                 align: right
                 suffix: ' V'
                 modify: parseFloat(x).toFixed(2)
+                footer_type: average
+                footer_modify: parseFloat(x).toFixed(2)
               - name: Solar
                 data: installations.pv
                 align: right
