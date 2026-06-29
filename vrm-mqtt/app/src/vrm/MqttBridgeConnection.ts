@@ -46,7 +46,7 @@ export class MqttBridgeConnection {
     this.installation = installation;
     this.pool = pool;
     this.subscribeTopics = this.buildSubscribeTopics();
-    this.keepaliveTopic = `R/${installation.identifier}/keepalive`;
+    this.keepaliveTopic = `R/${installation.brokerPortalId}/keepalive`;
     this.throttle = globalThrottle ?? new MessageThrottle(throttleIntervalMs, (topic, payload) => ha.publish(topic, payload));
 
     this.boundHandleConnect = () => { this.handleConnect(); };
@@ -102,7 +102,7 @@ export class MqttBridgeConnection {
   }
 
   private buildSubscribeTopics(): string[] {
-    const id = this.installation.identifier;
+    const id = this.installation.brokerPortalId;
     return [
       `N/${id}/system/0/Dc/Pv/Power`,
       `N/${id}/system/0/Dc/Battery/Soc`,
@@ -161,8 +161,12 @@ export class MqttBridgeConnection {
     return this.installation.identifier;
   }
 
+  get brokerPortalId(): string {
+    return this.installation.brokerPortalId;
+  }
+
   private handleMessage(topic: string, payload: Buffer): void {
-    if (!topic.startsWith(`N/${this.installation.identifier}/`)) return;
+    if (!topic.startsWith(`N/${this.installation.brokerPortalId}/`)) return;
 
     const str = payload.toString();
     for (const msg of routeFromVrm(topic, str)) {
