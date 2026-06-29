@@ -45,7 +45,18 @@ Spread the per-cycle publish load evenly across the throttle interval so the bro
 
 ### Replace `GlobalMessageThrottle` with `RollingMessageThrottle`
 
-`src/vrm/GlobalMessageThrottle.ts` is deleted. A new `src/vrm/RollingMessageThrottle.ts` is introduced with the **same public API** (`enqueue`, `start`, `flush`, `stop`) and the same constructor signature. The `MqttBridgeConnection` and `InstallationManager` call sites do not change beyond a one-token import swap at `src/vrm/InstallationManager.ts:48`.
+`src/vrm/GlobalMessageThrottle.ts` is deleted. A new `src/vrm/RollingMessageThrottle.ts` is introduced with the **same public API** (`enqueue`, `start`, `flush`, `stop`) and the same constructor signature.
+
+All references to `GlobalMessageThrottle` in the source tree are renamed to `RollingMessageThrottle`. The full set of touched lines:
+
+- `src/vrm/InstallationManager.ts:3` — import
+- `src/vrm/InstallationManager.ts:37` — `globalThrottle` field type
+- `src/vrm/InstallationManager.ts:48` — `new GlobalMessageThrottle(...)` → `new RollingMessageThrottle(...)`
+- `src/vrm/MqttBridgeConnection.ts:4` — import
+- `src/vrm/MqttBridgeConnection.ts:21` — `globalThrottle?: GlobalMessageThrottle` option type
+- `src/vrm/MqttBridgeConnection.ts:30` — `throttle: MessageThrottle | GlobalMessageThrottle` field type
+
+No other call site behavior changes — `MqttBridgeConnection` still calls `throttle.enqueue(topic, payload)` against either the shared `RollingMessageThrottle` (when provided) or its own private `MessageThrottle` (when not).
 
 The internal state is a sharded buffer keyed by `portalId`:
 
@@ -57,17 +68,18 @@ private timer: NodeJS.Timeout | null = null;
 
 ### Topic → portalId parsing
 
-`enqueue` extracts the `portalId` from the topic prefix. All topics entering the throttle come from `routeFromVrm` and follow the shape `vrm/{portalId}/…`:
+`enqueue` extracts the `portalId` from the second `/`-delimited segment of the topic. All topics entering the throttle come from `routeFromVrm` and follow the shape `vrm/{portalId}/…` (with a trailing path) or `vrm/{portalId}` (no trailing path — used by some test fixtures and defensive against malformed input):
 
 ```ts
-const PORTAL_RE = /^vrm\/([^/]+)\//;
 private portalIdOf(topic: string): string {
-  const m = PORTAL_RE.exec(topic);
-  return m ? m[1] : '_unknown';
+  const parts = topic.split('/');
+  // Expected: ['vrm', '{portalId}', '{service}', ...]
+  // We accept portalId-less 'vrm/x' too (parts.length >= 2).
+  return parts.length >= 2 && parts[0] === 'vrm' ? parts[1] : '_unknown';
 }
 ```
 
-A topic that doesn't match (defensive: should not happen, but the throttle must not throw) goes into a single `_unknown` shard and is flushed with the rest.
+A topic that doesn't match (defensive: should not happen, but the throttle must not throw) goes into a single `_unknown` shard and is flushed with the rest. The `_unknown` shard is **never coalesced away** — it just behaves like any other shard.
 
 ### Tick schedule
 
@@ -120,14 +132,15 @@ For N ≤ 500 the `intervalMs` is preserved exactly. Beyond that, Node's `setTim
 |---|---|
 | `vrm-mqtt/app/src/vrm/RollingMessageThrottle.ts` | **New.** Replaces `GlobalMessageThrottle`. |
 | `vrm-mqtt/app/src/vrm/GlobalMessageThrottle.ts` | **Deleted.** |
-| `vrm-mqtt/app/src/vrm/InstallationManager.ts:48` | One-line change: `new GlobalMessageThrottle(...)` → `new RollingMessageThrottle(...)`. |
+| `vrm-mqtt/app/src/vrm/InstallationManager.ts` | Rename import + field type + constructor call. See lines 3, 37, 48. |
+| `vrm-mqtt/app/src/vrm/MqttBridgeConnection.ts` | Rename import + option type + field type. See lines 4, 21, 30. |
 | `vrm-mqtt/app/src/vrm/__tests__/RollingMessageThrottle.test.ts` | **New.** Replaces the old test file. |
 | `vrm-mqtt/app/src/vrm/__tests__/GlobalMessageThrottle.test.ts` | **Deleted.** |
 | `vrm-mqtt/CHANGELOG.md` | Add `0.1.5` entry. |
 | `vrm-mqtt/DOCS.md` | One paragraph in the Configuration table: existing `vrm_throttle_interval_ms` description gains a sentence on rolling behavior. |
 | `vrm-mqtt/config.yaml` | Bump `version: "0.1.4"` → `"0.1.5"`. No schema/option changes. |
 
-`MqttBridgeConnection`, `DiscoveryPublisher`, `HaBrokerClient`, `VrmBrokerPool`, `VrmApiClient`, `index.ts`, and `config.ts` are **not touched**.
+`DiscoveryPublisher`, `HaBrokerClient`, `VrmBrokerPool`, `VrmApiClient`, `index.ts`, and `config.ts` are **not touched**.
 
 ## Testing strategy
 
