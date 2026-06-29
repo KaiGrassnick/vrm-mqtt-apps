@@ -10,10 +10,12 @@ const MockedPool = VrmBrokerPool as jest.MockedClass<typeof VrmBrokerPool>;
 const MockedConn = MqttBridgeConnection as jest.MockedClass<typeof MqttBridgeConnection>;
 
 function makeInstallation(idSite: number, mqttHost = 'mqtt5.victronenergy.com'): VrmInstallation {
+  const identifier = `id${idSite}`;
   return {
     idSite,
     name: `Site ${idSite}`,
-    identifier: `id${idSite}`,
+    identifier,
+    brokerPortalId: identifier,
     mqttHost,
     mqttWebHost: 'webmqtt5.victronenergy.com',
   };
@@ -50,11 +52,15 @@ describe('InstallationManager', () => {
     MockedPool.mockImplementation(() => mockPoolInstance);
 
     MockedConn.mockImplementation((options) => {
+      const inst = (options as { installation: VrmInstallation }).installation;
       const conn = {
         start: jest.fn(),
         stop: jest.fn().mockResolvedValue(undefined),
         updateName: jest.fn(),
-        identifier: (options as { installation: { identifier: string } }).installation.identifier,
+        publishToVrm: jest.fn(),
+        identifier: inst.identifier,
+        idSite: inst.idSite,
+        brokerPortalId: inst.brokerPortalId,
       } as unknown as MqttBridgeConnection;
       createdConns.push(conn as unknown as { start: jest.Mock; stop: jest.Mock; updateName: jest.Mock; identifier: string });
       connCounter++;
@@ -183,8 +189,8 @@ describe('InstallationManager', () => {
 
       await manager.shutdown();
 
-      expect(mockPublisher.publishAvailability).toHaveBeenCalledWith('id1', false);
-      expect(mockPublisher.publishAvailability).toHaveBeenCalledWith('id2', false);
+      expect(mockPublisher.publishAvailability).toHaveBeenCalledWith(1, false);
+      expect(mockPublisher.publishAvailability).toHaveBeenCalledWith(2, false);
     });
   });
 
@@ -198,7 +204,7 @@ describe('InstallationManager', () => {
     it('calls removeInstallation for a disabled installation', async () => {
       const manager = new InstallationManager({ ...opts, disabledInstallationIds: ['id1'] });
       await manager.reconcile([makeInstallation(1)]);
-      expect(mockPublisher.removeInstallation).toHaveBeenCalledWith('id1');
+      expect(mockPublisher.removeInstallation).toHaveBeenCalledWith(1);
     });
 
     it('still creates connections for non-disabled installations', async () => {
@@ -216,6 +222,7 @@ describe('InstallationManager', () => {
         idSite,
         name: `Site ${idSite}`,
         identifier: `test-replaced-portal USEDASREPLACEMENT AT 1700000000`,
+        brokerPortalId: 'test-replaced-portal',
         mqttHost: 'mqtt5.victronenergy.com',
         mqttWebHost: 'webmqtt5.victronenergy.com',
       };
@@ -230,9 +237,7 @@ describe('InstallationManager', () => {
     it('purges any retained HA discovery for a replaced installation', async () => {
       const manager = new InstallationManager(opts);
       await manager.reconcile([makeReplacedInstallation(1)]);
-      expect(mockPublisher.removeInstallation).toHaveBeenCalledWith(
-        'test-replaced-portal USEDASREPLACEMENT AT 1700000000',
-      );
+      expect(mockPublisher.removeInstallation).toHaveBeenCalledWith(1);
     });
 
     it('still bridges non-replaced installations when replaced ones are present', async () => {
@@ -247,10 +252,8 @@ describe('InstallationManager', () => {
       await manager.reconcile([makeInstallation(1), makeReplacedInstallation(2), makeInstallation(3)]);
       // Only id1 should be bridged; id2 (replaced) and id3 (disabled) skipped.
       expect(MockedConn).toHaveBeenCalledTimes(1);
-      expect(mockPublisher.removeInstallation).toHaveBeenCalledWith(
-        'test-replaced-portal USEDASREPLACEMENT AT 1700000000',
-      );
-      expect(mockPublisher.removeInstallation).toHaveBeenCalledWith('id3');
+      expect(mockPublisher.removeInstallation).toHaveBeenCalledWith(2);
+      expect(mockPublisher.removeInstallation).toHaveBeenCalledWith(3);
     });
   });
 
@@ -326,6 +329,71 @@ describe('InstallationManager', () => {
       manager.resume();
       expect(createdConns[0].start).toHaveBeenCalledTimes(1);
       expect(createdConns[1].start).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('routeHaCommand — idSite-keyed lookup and brokerPortalId rewrite', () => {
+    let manager: InstallationManager;
+
+    beforeEach(async () => {
+      manager = new InstallationManager(opts);
+      // Two installations with different idSites — both will be registered.
+      await manager.reconcile([
+        makeInstallation(1, 'mqtt5.victronenergy.com'),
+        makeInstallation(2, 'mqtt7.victronenergy.com'),
+      ]);
+    });
+
+    it('parses W/{idSite}/.../set, looks up connection, and rewrites to W/{brokerPortalId}/...', () => {
+      const conn1 = createdConns[0] as unknown as { publishToVrm: jest.Mock };
+      manager.routeHaCommand('vrm/1/vebus/256/Mode/set', 'On');
+      expect(conn1.publishToVrm).toHaveBeenCalledTimes(1);
+      expect(conn1.publishToVrm).toHaveBeenCalledWith(
+        'W/id1/vebus/256/Mode',
+        expect.stringContaining('"value":3'),
+      );
+    });
+
+    it('routes to the right connection when both sites have the same brokerPortalId', async () => {
+      // Two installations share the same brokerPortalId (the "replacement case"
+      // — installation 2's brokerPortalId has been derived from a USEDASREPLACEMENT
+      // identifier). Under Task 6 the USEDASREPLACEMENT skip is still in effect, so
+      // we simulate the post-skip shape: both records carry distinct identifiers
+      // and idSites but a shared brokerPortalId.
+      const m = new InstallationManager(opts);
+      await m.reconcile([
+        { ...makeInstallation(1, 'mqtt5.victronenergy.com'), brokerPortalId: 'c0619ab417b5' },
+        { ...makeInstallation(2, 'mqtt7.victronenergy.com'), brokerPortalId: 'c0619ab417b5' },
+      ]);
+
+      // createdConns[0..1] belong to the outer `manager`; m's reconcile pushed
+      // two more entries at index 2 (idSite 1) and 3 (idSite 2).
+      const conn2 = createdConns[3] as unknown as { publishToVrm: jest.Mock };
+      // HA sends vrm/{idSite=2}/.../set — must reach conn2 (not conn1).
+      m.routeHaCommand('vrm/2/vebus/256/Mode/set', 'On');
+      expect(conn2.publishToVrm).toHaveBeenCalledTimes(1);
+      expect(conn2.publishToVrm.mock.calls[0][0]).toBe('W/c0619ab417b5/vebus/256/Mode');
+    });
+
+    it('warns and drops when parts[1] is not a numeric idSite', () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const conn1 = createdConns[0] as unknown as { publishToVrm: jest.Mock };
+      // 'W/abc/...' — "abc" is not a valid idSite.
+      manager.routeHaCommand('vrm/abc/vebus/256/Mode/set', 'On');
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('non-numeric idSite abc'),
+      );
+      expect(conn1.publishToVrm).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it('warns and drops when no connection matches the idSite', () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      manager.routeHaCommand('vrm/9999/vebus/256/Mode/set', 'On');
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('No connection found for idSite 9999'),
+      );
+      warn.mockRestore();
     });
   });
 });
