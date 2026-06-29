@@ -68,12 +68,13 @@ describe('pollInstallations overlapping-guard', () => {
 
 describe('pollInstallations legacy-purge-once guard', () => {
   const originalEnv = process.env;
-  let consoleLog: jest.SpiedFunction<typeof console.log>;
 
   beforeEach(() => {
     jest.resetModules();
     process.env = { ...originalEnv, VRM_API_TOKEN: 't', HA_MQTT_HOST: 'h' };
-    consoleLog = jest.spyOn(console, 'log').mockImplementation(() => {});
+    // Silence the noisy main()-side startup logs that the import side-effect
+    // emits; we don't assert on them in this suite.
+    jest.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {

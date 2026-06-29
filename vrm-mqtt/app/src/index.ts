@@ -97,7 +97,9 @@ async function main(): Promise<void> {
 
   ha.start();
 
-  let pollTimer: ReturnType<typeof setInterval>;
+  const pollTimer = setInterval(() => {
+    pollInstallations(client, manager, user, publisher).catch(handlePollError);
+  }, config.vrm.pollIntervalMs);
 
   const shutdown = async (): Promise<void> => {
     console.log('[VRM] Shutting down...');
@@ -114,10 +116,6 @@ async function main(): Promise<void> {
   console.log(`[VRM] Starting VRM MQTT Bridge (poll interval: ${config.vrm.pollIntervalMs}ms)`);
 
   await pollInstallations(client, manager, user, publisher).catch(handlePollError);
-
-  pollTimer = setInterval(() => {
-    pollInstallations(client, manager, user, publisher).catch(handlePollError);
-  }, config.vrm.pollIntervalMs);
 }
 
 main().catch((err: unknown) => {

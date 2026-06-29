@@ -37,12 +37,12 @@ describe('InstallationManager', () => {
 
   let mockPoolInstance: jest.Mocked<VrmBrokerPool>;
   let createdConns: Array<{ start: jest.Mock; stop: jest.Mock; updateName: jest.Mock; identifier: string }>;
-  let connCounter: number;
+  let _connCounter: number;
 
   beforeEach(() => {
     jest.clearAllMocks();
     createdConns = [];
-    connCounter = 0;
+    _connCounter = 0;
 
     mockPoolInstance = {
       getOrCreate: jest.fn().mockReturnValue({}),
@@ -63,7 +63,7 @@ describe('InstallationManager', () => {
         brokerPortalId: inst.brokerPortalId,
       } as unknown as MqttBridgeConnection;
       createdConns.push(conn as unknown as { start: jest.Mock; stop: jest.Mock; updateName: jest.Mock; identifier: string });
-      connCounter++;
+      _connCounter++;
       return conn;
     });
   });
