@@ -615,4 +615,171 @@ describe('MqttBridgeConnection', () => {
       expect(stateCalls.map(([, p]: [string, string]) => p)).toEqual(['{"value":80}', '']);
     });
   });
+
+  // ── aggregate sensors (L{n}/Power → AggPower) ──────────────────────────────
+
+  describe('aggregate sensors', () => {
+    const portalId = installation.brokerPortalId;
+    const idSite = installation.idSite;
+    const INTERVAL = 100;
+
+    function makeActiveConn(): {
+      client: ReturnType<typeof makeMockClient>;
+      ha: ReturnType<typeof makeMockHa>;
+      conn: MqttBridgeConnection;
+    } {
+      const client = makeMockClient(true);
+      const ha = makeMockHa();
+      const conn = new MqttBridgeConnection({
+        installation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: ha as never,
+        publisher: makeMockPublisher() as never,
+        throttleIntervalMs: INTERVAL,
+        getIdSite: idSiteFor(installation),
+      });
+      conn.start();
+      client.emit('connect');
+      return { client, ha, conn };
+    }
+
+    function emit(client: ReturnType<typeof makeMockClient>, topic: string, payload: string): void {
+      client.emit('message', topic, Buffer.from(payload));
+    }
+
+    function aggregateCalls(ha: ReturnType<typeof makeMockHa>, aggregateTopic: string): Array<[string, string]> {
+      return (ha.publish as jest.Mock).mock.calls.filter(
+        ([t]: [string]) => t === aggregateTopic,
+      ) as Array<[string, string]>;
+    }
+
+    function aggregatePayloads(ha: ReturnType<typeof makeMockHa>, aggregateTopic: string): number[] {
+      return aggregateCalls(ha, aggregateTopic)
+        .map(([, p]: [string, string]) => JSON.parse(p).value as number);
+    }
+
+    it('publishes a one-phase sum when only L1 reports (single-phase install)', () => {
+      const { client, ha } = makeActiveConn();
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":100}');
+      jest.advanceTimersByTime(INTERVAL);
+
+      const aggTopic = `vrm/${idSite}/system/0/Ac/Grid/AggPower`;
+      expect(aggregatePayloads(ha, aggTopic)).toEqual([100]);
+    });
+
+    it('publishes a three-phase sum when L1, L2, L3 all report (3-phase install)', () => {
+      const { client, ha } = makeActiveConn();
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":100}');
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L2/Power`, '{"value":150}');
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L3/Power`, '{"value":50}');
+      jest.advanceTimersByTime(INTERVAL);
+
+      const aggTopic = `vrm/${idSite}/system/0/Ac/Grid/AggPower`;
+      // Bridge publishes the aggregate once per L-phase update.
+      // Final value: 100 + 150 + 50 = 300.
+      expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(300);
+    });
+
+    it('recomputes the aggregate when an already-reported phase updates', () => {
+      const { client, ha } = makeActiveConn();
+      const aggTopic = `vrm/${idSite}/system/0/Ac/Grid/AggPower`;
+
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":100}');
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L2/Power`, '{"value":150}');
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L3/Power`, '{"value":50}');
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":200}');
+      jest.advanceTimersByTime(INTERVAL);
+
+      // 200 + 150 + 50 = 400
+      expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(400);
+    });
+
+    it('handles negative values (e.g. power flowing back to grid)', () => {
+      const { client, ha } = makeActiveConn();
+      const aggTopic = `vrm/${idSite}/system/0/Ac/Grid/AggPower`;
+
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":100}');
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L2/Power`, '{"value":-200}');
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L3/Power`, '{"value":-50}');
+      jest.advanceTimersByTime(INTERVAL);
+
+      expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(-150);
+    });
+
+    it('publishes Ac/Consumption/AggPower from consumption L-phase values', () => {
+      const { client, ha } = makeActiveConn();
+      emit(client, `N/${portalId}/system/0/Ac/Consumption/L1/Power`, '{"value":300}');
+      emit(client, `N/${portalId}/system/0/Ac/Consumption/L2/Power`, '{"value":400}');
+      jest.advanceTimersByTime(INTERVAL);
+
+      const aggTopic = `vrm/${idSite}/system/0/Ac/Consumption/AggPower`;
+      expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(700);
+    });
+
+    it('publishes Ac/Genset/AggPower from genset L-phase values', () => {
+      const { client, ha } = makeActiveConn();
+      emit(client, `N/${portalId}/system/0/Ac/Genset/L1/Power`, '{"value":2000}');
+      emit(client, `N/${portalId}/system/0/Ac/Genset/L2/Power`, '{"value":2100}');
+      emit(client, `N/${portalId}/system/0/Ac/Genset/L3/Power`, '{"value":2200}');
+      jest.advanceTimersByTime(INTERVAL);
+
+      const aggTopic = `vrm/${idSite}/system/0/Ac/Genset/AggPower`;
+      expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(6300);
+    });
+
+    it('does not aggregate an unparseable payload', () => {
+      const { client, ha } = makeActiveConn();
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, 'not-json');
+      jest.advanceTimersByTime(INTERVAL);
+
+      const aggTopic = `vrm/${idSite}/system/0/Ac/Grid/AggPower`;
+      expect(aggregateCalls(ha, aggTopic)).toEqual([]);
+    });
+
+    it('does not aggregate a payload whose value is not numeric', () => {
+      const { client, ha } = makeActiveConn();
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":"foo"}');
+      jest.advanceTimersByTime(INTERVAL);
+
+      const aggTopic = `vrm/${idSite}/system/0/Ac/Grid/AggPower`;
+      expect(aggregateCalls(ha, aggTopic)).toEqual([]);
+    });
+
+    it('forwards the raw L-phase message AND the aggregate to HA', () => {
+      const { client, ha } = makeActiveConn();
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":100}');
+      jest.advanceTimersByTime(INTERVAL);
+
+      // Raw L1 topic forwarded verbatim.
+      expect(ha.publish).toHaveBeenCalledWith(
+        `vrm/${idSite}/system/0/Ac/Grid/L1/Power`,
+        '{"value":100}',
+      );
+      // Aggregate also published.
+      expect(ha.publish).toHaveBeenCalledWith(
+        `vrm/${idSite}/system/0/Ac/Grid/AggPower`,
+        '{"value":100}',
+      );
+    });
+
+    it('clears the aggregate buffer on stop() so a stale value is not retained', async () => {
+      const { client, ha, conn } = makeActiveConn();
+      const aggTopic = `vrm/${idSite}/system/0/Ac/Grid/AggPower`;
+
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":100}');
+      jest.advanceTimersByTime(INTERVAL);
+      // Confirm we published the aggregate.
+      expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(100);
+
+      (ha.publish as jest.Mock).mockClear();
+      await conn.stop();
+
+      // On stop, the aggregate topic must be cleared with empty retained —
+      // otherwise HA would keep showing the last value across reconnects.
+      const clears = (ha.publish as jest.Mock).mock.calls.filter(
+        ([t, p, r]: [string, string, boolean]) => t === aggTopic && p === '' && r === true,
+      );
+      expect(clears).toHaveLength(1);
+    });
+  });
 });

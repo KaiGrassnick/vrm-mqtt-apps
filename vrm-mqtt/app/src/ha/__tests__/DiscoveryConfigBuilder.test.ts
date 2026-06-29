@@ -1,5 +1,5 @@
 import { buildDiscoveryConfigs, matchTemplateIndices } from '../DiscoveryConfigBuilder';
-import type { DeviceMeta, HaSelectConfig, HaNumberConfig } from '../types';
+import type { DeviceMeta, HaSelectConfig, HaNumberConfig, HaSensorConfig } from '../types';
 
 const ID_SITE = 12345;
 const v = (suffix: string): string => `vrm_${ID_SITE}_${suffix}`;
@@ -192,5 +192,88 @@ describe('value_template defensiveness', () => {
     expect(config?.value_template).toBe(
       "{% if value_json is defined %}{{ value_json.value }}{% else %}0{% endif %}",
     );
+  });
+});
+
+// ── aggregate sensors (sum of L{n}/Power → AggPower) ──────────────────────────
+
+describe('aggregate sensors', () => {
+  describe('Ac/Grid/AggPower', () => {
+    it('emits a sensor when at least one L-phase grid power path is observed', () => {
+      const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
+        'Ac/Grid/L1/Power',
+      ]);
+      const agg = configs.find(c => c.unique_id === v('system_0_ac_grid_aggpower'));
+      expect(agg).toBeDefined();
+    });
+
+    it('points state_topic at the aggregate path (no /L{n}/ segment)', () => {
+      const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
+        'Ac/Grid/L1/Power',
+        'Ac/Grid/L2/Power',
+        'Ac/Grid/L3/Power',
+      ]);
+      const agg = configs.find(c => c.unique_id === v('system_0_ac_grid_aggpower'));
+      expect(agg?.state_topic).toBe(`vrm/${ID_SITE}/system/0/Ac/Grid/AggPower`);
+    });
+
+    it('inherits the source unit, device_class, and state_class', () => {
+      const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
+        'Ac/Grid/L1/Power',
+      ]);
+      const agg = configs.find(c => c.unique_id === v('system_0_ac_grid_aggpower')) as HaSensorConfig;
+      expect(agg?.unit_of_measurement).toBe('W');
+      expect(agg?.device_class).toBe('power');
+      expect(agg?.state_class).toBe('measurement');
+    });
+
+    it('omits the aggregate when no L-phase grid power path is observed', () => {
+      const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
+        'Dc/Pv/Power',
+        'Dc/Battery/Soc',
+      ]);
+      const agg = configs.find(c => c.unique_id === v('system_0_ac_grid_aggpower'));
+      expect(agg).toBeUndefined();
+    });
+
+    it('uses the standard numeric value_template (bridge publishes the sum)', () => {
+      const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
+        'Ac/Grid/L1/Power',
+      ]);
+      const agg = configs.find(c => c.unique_id === v('system_0_ac_grid_aggpower'));
+      expect(agg?.value_template).toBe(
+        "{% if value_json is defined %}{{ value_json.value | default('Unknown') }}{% else %}Unknown{% endif %}",
+      );
+    });
+  });
+
+  describe('Ac/Consumption/AggPower', () => {
+    it('emits a sensor when at least one L-phase consumption path is observed', () => {
+      const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
+        'Ac/Consumption/L1/Power',
+        'Ac/Consumption/L2/Power',
+      ]);
+      const agg = configs.find(c => c.unique_id === v('system_0_ac_consumption_aggpower'));
+      expect(agg).toBeDefined();
+      expect(agg?.state_topic).toBe(`vrm/${ID_SITE}/system/0/Ac/Consumption/AggPower`);
+    });
+  });
+
+  describe('Ac/Genset/AggPower', () => {
+    it('emits a sensor when at least one L-phase genset path is observed', () => {
+      const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
+        'Ac/Genset/L3/Power',
+      ]);
+      const agg = configs.find(c => c.unique_id === v('system_0_ac_genset_aggpower'));
+      expect(agg).toBeDefined();
+      expect(agg?.state_topic).toBe(`vrm/${ID_SITE}/system/0/Ac/Genset/AggPower`);
+    });
+  });
+
+  it('non-aggregate entity defs (no aggregateFrom) are unaffected by the aggregate branch', () => {
+    const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['Dc/Battery/Soc']);
+    const soc = configs.find(c => c.unique_id === v('system_0_dc_battery_soc'));
+    expect(soc).toBeDefined();
+    expect(soc?.state_topic).toBe(`vrm/${ID_SITE}/system/0/Dc/Battery/Soc`);
   });
 });

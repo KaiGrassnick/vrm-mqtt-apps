@@ -31,12 +31,41 @@ export function buildDiscoveryConfigs(
       for (const n of matchTemplateIndices(def.path, observedPaths)) {
         configs.push(entityToConfig(idSite, service, instance, device, def, n));
       }
+    } else if (def.component === 'sensor' && def.aggregateFrom) {
+      // Aggregate sensor: emit a single entity whose state topic the bridge
+      // populates with the sum of its source paths. Only emit when at least
+      // one source has been observed — otherwise the entity would exist but
+      // never receive a value.
+      if (expandAggregateSourcePaths(def.aggregateFrom, observedPaths).length > 0) {
+        configs.push(entityToConfig(idSite, service, instance, device, def));
+      }
     } else if (pathSet.has(def.path)) {
       configs.push(entityToConfig(idSite, service, instance, device, def));
     }
   }
 
   return configs;
+}
+
+/**
+ * Resolve an `aggregateFrom` template list against observed paths. Templates
+ * containing `{n}` are expanded with the same indices that `matchTemplateIndices`
+ * would pick; literal templates are kept only if present in `observedPaths`.
+ *
+ * Result is sorted for deterministic discovery ordering.
+ */
+export function expandAggregateSourcePaths(templates: string[], observedPaths: string[]): string[] {
+  const expanded = new Set<string>();
+  for (const template of templates) {
+    if (template.includes('{n}')) {
+      for (const n of matchTemplateIndices(template, observedPaths)) {
+        expanded.add(template.replace('{n}', n));
+      }
+    } else if (observedPaths.includes(template)) {
+      expanded.add(template);
+    }
+  }
+  return [...expanded].sort();
 }
 
 /**

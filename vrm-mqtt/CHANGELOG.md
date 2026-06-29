@@ -1,4 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.8
+- Automatically add aggregate sensors if we have multiple phases
+
 ## 0.1.7
 - Retain every bridged VRM state value on the local broker so Home Assistant
   restarts and VRM-side reconnects no longer show entities as `unknown` /

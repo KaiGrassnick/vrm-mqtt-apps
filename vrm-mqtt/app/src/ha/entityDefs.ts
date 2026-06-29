@@ -29,6 +29,20 @@ export interface SensorEntityDef extends EntityDefBase {
   precision?: number;
   /** Populated when deviceClass is 'enum' — used to build the value_template. */
   enumValues?: Array<{ value: number; label: string }>;
+  /**
+   * If set, this sensor publishes the SUM of the numeric values from the
+   * listed source paths. Source paths may use `{n}` (expanded to the same
+   * set of indices that match the template) or be literal paths.
+   *
+   * The aggregate is the sum of source values that have been observed at
+   * least once — a single-phase installation publishes a one-phase sum,
+   * a three-phase installation publishes a three-phase sum. The aggregate
+   * target topic receives no value if no source has ever reported.
+   *
+   * Typical use: aggregate per-phase L{n}/Power readings into a single
+   * total-power entity (e.g. `Ac/Grid/AggPower`).
+   */
+  aggregateFrom?: string[];
 }
 
 export interface BinarySensorEntityDef extends EntityDefBase {
@@ -173,6 +187,7 @@ const SYSTEM_ENTITIES: EntityDef[] = [
   // AC consumption
   { path: 'Ac/Consumption/L{n}/Power', component: 'sensor', name: 'AC Consumption L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Ac/Consumption/L{n}/Current', component: 'sensor', name: 'AC Consumption L{n} Current', unit: 'A', deviceClass: 'current', stateClass: 'measurement', precision: 1 },
+  { path: 'Ac/Consumption/AggPower', component: 'sensor', name: 'AC Consumption Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/Consumption/L{n}/Power'] },
   { path: 'Ac/ConsumptionOnInput/L{n}/Power', component: 'sensor', name: 'AC Consumption On Input L{n}', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Ac/ConsumptionOnOutput/L{n}/Power', component: 'sensor', name: 'AC Consumption On Output L{n}', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   // AC active input
@@ -182,8 +197,10 @@ const SYSTEM_ENTITIES: EntityDef[] = [
   // AC grid
   { path: 'Ac/Grid/L{n}/Power', component: 'sensor', name: 'Grid L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Ac/Grid/L{n}/Current', component: 'sensor', name: 'Grid L{n} Current', unit: 'A', deviceClass: 'current', stateClass: 'measurement', precision: 1 },
+  { path: 'Ac/Grid/AggPower', component: 'sensor', name: 'Grid Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/Grid/L{n}/Power'] },
   // AC genset
   { path: 'Ac/Genset/L{n}/Power', component: 'sensor', name: 'Generator L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
+  { path: 'Ac/Genset/AggPower', component: 'sensor', name: 'Generator Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/Genset/L{n}/Power'] },
   // AC PV
   { path: 'Ac/PvOnOutput/L{n}/Power', component: 'sensor', name: 'PV On Output L{n} Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
   { path: 'Ac/PvOnOutput/L{n}/Current', component: 'sensor', name: 'PV On Output L{n} Current', unit: 'A', deviceClass: 'current', stateClass: 'measurement', precision: 1 },

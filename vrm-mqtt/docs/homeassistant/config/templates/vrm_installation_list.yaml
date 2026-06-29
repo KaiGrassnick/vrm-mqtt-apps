@@ -1,44 +1,34 @@
 - triggers:
     - trigger: time_pattern
-      seconds: "/1"
+      seconds: "/5"
   sensor:
     - name: VRM Installations
       unique_id: vrm_installations
       icon: mdi:solar-power-variant
       state: >-
-        {{ states | selectattr('entity_id', 'match', '^sensor\.vrm_.+_system_0_dc_pv_power$') | list | length }}
+        {{ states | selectattr('entity_id', 'match', '^sensor\.vrm_.+_system_0_ac_grid_aggpower$') | list | length }}
       attributes:
         installations: >-
           {% set ns = namespace(items=[]) %}
-          {% for s in states |
-            selectattr('entity_id', 'match', '^sensor\.vrm_.+_system_0_dc_pv_power$') |
-            list %}
+          {% for s in states | selectattr('entity_id', 'match', '^sensor\.vrm_.+_system_0_ac_grid_aggpower$') | list %}
             {% set eid = s.entity_id %}
             {% set portal = eid.split('_')[1] %}
             {% set id = 'vrm_' ~ portal %}
-            {% set pv    = states(eid) | float(0) %}
-            {% set soc   = states('sensor.' ~ id ~ '_system_0_dc_battery_soc')        | float(0) %}
-            {% set battery_voltage = states('sensor.' ~ id ~ '_system_0_dc_battery_voltage') | float(0) %}
-            {% set grid  = states('sensor.' ~ id ~ '_system_0_ac_grid_l1_power')        | float(0)
-                         + states('sensor.' ~ id ~ '_system_0_ac_grid_l2_power')        | float(0)
-                         + states('sensor.' ~ id ~ '_system_0_ac_grid_l3_power')        | float(0) %}
-            {% set gens  = states('sensor.' ~ id ~ '_system_0_ac_genset_l1_power')      | float(0)
-                         + states('sensor.' ~ id ~ '_system_0_ac_genset_l2_power')      | float(0)
-                         + states('sensor.' ~ id ~ '_system_0_ac_genset_l3_power')      | float(0) %}
-            {% set load  = states('sensor.' ~ id ~ '_system_0_ac_consumption_l1_power') | float(0)
-                         + states('sensor.' ~ id ~ '_system_0_ac_consumption_l2_power') | float(0)
-                         + states('sensor.' ~ id ~ '_system_0_ac_consumption_l3_power') | float(0) %}
+            {% set pv   = states('sensor.' ~ id ~ '_system_0_dc_pv_power')                    | float(0) %}
+            {% set soc   = states('sensor.' ~ id ~ '_system_0_dc_battery_soc')                | float(0) %}
+            {% set battery_voltage = states('sensor.' ~ id ~ '_system_0_dc_battery_voltage')  | float(0) %}
+            {% set grid  = states('sensor.' ~ id ~ '_system_0_ac_grid_aggpower')              | float(0) %}
+            {% set gens  = states('sensor.' ~ id ~ '_system_0_ac_genset_aggpower')            | float(0) %}
+            {% set load  = states('sensor.' ~ id ~ '_system_0_ac_consumption_aggpower')       | float(0) %}
             {% set name  = device_attr(eid, 'name') or portal %}
             {% set ns.items = ns.items + [{
-              'name':    name,
-              'soc':     soc,
-              'battery_voltage': battery_voltage,
-              'pv':      pv,
-              'grid':    grid,
-              'genset':  gens,
-              'load':    load,
-              'portal':  portal,
-              'pv_eid':  eid,
+              'name':             name,
+              'soc':              soc,
+              'battery_voltage':  battery_voltage,
+              'pv':               pv,
+              'grid':             grid,
+              'genset':           gens,
+              'load':             load
             }] %}
           {% endfor %}
           {{ {'installations': ns.items} | to_json }}

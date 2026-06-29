@@ -4,11 +4,39 @@ import { MessageThrottle } from './MessageThrottle';
 import { RollingMessageThrottle } from './RollingMessageThrottle';
 import { DiscoveryPublisher } from '../ha/DiscoveryPublisher';
 import { HaBrokerClient } from '../ha/HaBrokerClient';
-import { routeFromVrm } from '../ha/MessageRouter';
+import { parseVrmTopic, routeFromVrm } from '../ha/MessageRouter';
 import { VrmBrokerPool } from './VrmBrokerPool';
+import { AggregateProcessor, type AggregateRule } from './AggregateProcessor';
+import { SERVICE_ENTITY_DEFS, type SensorEntityDef } from '../ha/entityDefs';
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
 const SUPPRESS_REPUBLISH = JSON.stringify({ 'keepalive-options': ['suppress-republish'] });
+
+/**
+ * L-phase indices the bridge pre-expands in `aggregateFrom` templates.
+ * Three-phase systems are the common case; the processor's observed-sources
+ * set then narrows the sum to whichever phases actually report.
+ */
+const POSSIBLE_PHASE_INDICES = ['1', '2', '3'];
+
+/**
+ * Resolve an `aggregateFrom` template list into concrete source paths using
+ * the standard L1/L2/L3 indices. Templates containing `{n}` are expanded for
+ * every possible phase; literal templates are kept as-is.
+ */
+function expandAggregateSourcePaths(def: SensorEntityDef): string[] {
+  const expanded = new Set<string>();
+  for (const template of def.aggregateFrom ?? []) {
+    if (template.includes('{n}')) {
+      for (const n of POSSIBLE_PHASE_INDICES) {
+        expanded.add(template.replace('{n}', n));
+      }
+    } else {
+      expanded.add(template);
+    }
+  }
+  return [...expanded].sort();
+}
 
 export interface MqttBridgeConnectionOptions {
   installation: VrmInstallation;
@@ -33,6 +61,7 @@ export class MqttBridgeConnection {
   private readonly getIdSite: (brokerPortalId: string) => number | undefined;
   private readonly subscribeTopics: string[];
   private readonly keepaliveTopic: string;
+  private readonly aggregator: AggregateProcessor;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private isFirstKeepalive = true;
   /** HA-side topics this connection has forwarded; cleared on stop() so the broker
@@ -55,6 +84,7 @@ export class MqttBridgeConnection {
     this.keepaliveTopic = `R/${installation.brokerPortalId}/keepalive`;
     this.throttle = globalThrottle ?? new MessageThrottle(throttleIntervalMs, (topic, payload): void => ha.publish(topic, payload));
     this.getIdSite = getIdSite ?? ((): undefined => undefined);
+    this.aggregator = this.buildAggregator();
 
     this.boundHandleConnect = (): void => { this.handleConnect(); };
     this.boundHandleMessage = (topic, payload): void => { this.handleMessage(topic, payload); };
@@ -95,6 +125,7 @@ export class MqttBridgeConnection {
       this.ha.publish(topic, '', true);
     }
     this.publishedStateTopics.clear();
+    this.aggregator.clear();
 
     // No client means start() was never called — nothing to clean up.
     if (!this.client) return;
@@ -191,6 +222,38 @@ export class MqttBridgeConnection {
       this.publishedStateTopics.add(msg.topic);
       this.throttle.enqueue(msg.topic, msg.payload);
     }
+
+    // Feed the value to the aggregate processor; any updated aggregates are
+    // enqueued through the same throttle. The parse-then-feed is done in
+    // feedPayload which is a no-op for untracked paths and unparseable values.
+    const parsed = parseVrmTopic(topic);
+    if (parsed) {
+      for (const agg of this.aggregator.feedPayload(parsed.path, str)) {
+        this.publishedStateTopics.add(agg.topic);
+        this.throttle.enqueue(agg.topic, agg.payload);
+      }
+    }
+  }
+
+  /**
+   * Build an AggregateProcessor from the system/0 entity defs. Each def with
+   * `aggregateFrom` becomes one rule. Source-path templates are pre-expanded
+   * with the standard L1/L2/L3 indices; the processor's observed-sources set
+   * then narrows the sum to whichever phases actually report.
+   */
+  private buildAggregator(): AggregateProcessor {
+    const defs = SERVICE_ENTITY_DEFS['system'] ?? [];
+    const rules: AggregateRule[] = [];
+    for (const def of defs) {
+      if (def.component !== 'sensor' || !def.aggregateFrom) continue;
+      const sourcePaths = expandAggregateSourcePaths(def as SensorEntityDef);
+      if (sourcePaths.length === 0) continue;
+      rules.push({
+        targetTopic: `vrm/${this.installation.idSite}/system/0/${def.path}`,
+        sourcePaths,
+      });
+    }
+    return new AggregateProcessor(rules);
   }
 
   /**

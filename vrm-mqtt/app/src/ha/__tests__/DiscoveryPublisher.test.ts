@@ -43,11 +43,11 @@ describe('publishInstallation', () => {
     expect(payload.components).toBeDefined();
   });
 
-  it('payload has 13 components', () => {
+  it('payload has 16 components (13 raw paths + 3 L-phase aggregates)', () => {
     const { pub, ha } = publisher();
     pub.publishInstallation(ID_SITE, NAME);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
-    expect(Object.keys(payload.components)).toHaveLength(13);
+    expect(Object.keys(payload.components)).toHaveLength(16);
   });
 
   it('components use platform instead of component, and have no device field', () => {
