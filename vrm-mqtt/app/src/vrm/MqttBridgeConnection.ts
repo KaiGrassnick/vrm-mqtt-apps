@@ -156,6 +156,7 @@ export class MqttBridgeConnection {
       `N/${id}/system/0/Ac/Grid/+/Power`,
       `N/${id}/system/0/Ac/Consumption/+/Power`,
       `N/${id}/system/0/Ac/Genset/+/Power`,
+      `N/${id}/system/0/Ac/PvOnGrid/+/Power`,
     ];
   }
 
