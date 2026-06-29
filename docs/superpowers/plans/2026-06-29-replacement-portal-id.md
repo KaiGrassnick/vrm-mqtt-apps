@@ -524,7 +524,7 @@ In `vrm-mqtt/app/src/ha/__tests__/MessageRouter.test.ts`:
 
   ```ts
   it('returns [] when the broker portalId is unknown to the caller', () => {
-    const lookup = () => undefined as unknown as number;
+    const lookup: (brokerPortalId: string) => number | undefined = () => undefined;
     expect(routeFromVrm('N/abc123/battery/279/Soc', '{"value":1}', lookup)).toEqual([]);
   });
 
