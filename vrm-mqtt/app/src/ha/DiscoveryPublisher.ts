@@ -101,17 +101,21 @@ export class DiscoveryPublisher {
 
   /**
    * One-time purge of legacy (identifier-keyed) HA discovery and availability
-   * messages from a previous release. Called on startup / every poll before the
-   * first reconcile so that an upgrading user doesn't accumulate dead devices.
+   * messages from a previous release. Called once before the first reconcile
+   * so an upgrading user doesn't accumulate dead devices.
    *
-   * Idempotent: a fresh install (no retained legacy messages) is a no-op, and
-   * subsequent polls are no-ops once the legacy messages have been cleared.
+   * Implementation: publish empty retained directly to each legacy topic.
+   * Empty retained on a topic without a retained payload is a no-op for HA's
+   * discovery semantics; on a real legacy topic it clears the device.
    *
-   * Safety: the broker may surface topics other than the literal legacy one we
-   * asked about (live messages arriving during the 300 ms collectRetained
-   * window, or accidental MQTT-wildcard expansion if an identifier contains
-   * '+' or '#'). We never clear any topic whose name is not exactly the
-   * legacy pattern we requested.
+   * Why no read-then-publish: collecting retained messages requires a 300 ms
+   * subscribe window per topic, which at fleet scale (60 s for 100
+   * installations, ~2 min for 200) added per-poll latency without value,
+   * because the clear (publish empty retained) is idempotent and safe to fire
+   * unconditionally.
+   *
+   * Idempotent: a fresh install publishes empty retained to never-existed
+   * topics; HA treats that as 'no device here'.
    */
   async purgeLegacyDiscovery(installations: readonly VrmInstallation[]): Promise<void> {
     for (const inst of installations) {
@@ -120,14 +124,9 @@ export class DiscoveryPublisher {
         `vrm/${inst.identifier}/availability`,
       ] as const;
       for (const topic of legacyTopics) {
-        const retained = await this.ha.collectRetained(topic);
-        for (const { topic: t, payload } of retained) {
-          if (payload !== '' && t === topic) {
-            this.ha.publish(t, '', true);
-            console.log(`[Discovery] Purged legacy HA topic ${t} (idSite=${inst.idSite})`);
-          }
-        }
+        this.ha.publish(topic, '', true);
       }
     }
+    console.log(`[Discovery] Purged legacy HA topics for ${installations.length} installation(s)`);
   }
 }

@@ -222,62 +222,28 @@ describe('purgeLegacyDiscovery', () => {
     { idSite: 2, name: 'B', identifier: 'c0619ab417b5 - USEDASREPLACEMENT AT 1719937767', brokerPortalId: 'c0619ab417b5', mqttHost: 'h', mqttWebHost: 'h' },
   ];
 
-  it('publishes empty retained for each non-empty legacy payload it finds', async () => {
-    const ha = makeMockHa();
-    ha.collectRetained.mockImplementation(async (pattern: string) => {
-      if (pattern === 'homeassistant/device/vrm_abc/config') return [{ topic: pattern, payload: '{"device":{}}' }];
-      if (pattern === 'vrm/abc/availability') return [{ topic: pattern, payload: 'online' }];
-      return [];
-    });
-    const pub = new DiscoveryPublisher(ha as unknown as HaBrokerClient, '1.0.0');
-
+  it('publishes empty retained directly to each legacy topic (no broker subscription)', async () => {
+    const { pub, ha } = publisher();
     await pub.purgeLegacyDiscovery(installations);
-
+    // 2 legacy topics × 2 installations = 4 publishes total.
     expect(ha.publish).toHaveBeenCalledWith('homeassistant/device/vrm_abc/config', '', true);
     expect(ha.publish).toHaveBeenCalledWith('vrm/abc/availability', '', true);
+    expect(ha.publish).toHaveBeenCalledWith(
+      'homeassistant/device/vrm_c0619ab417b5 - USEDASREPLACEMENT AT 1719937767/config',
+      '',
+      true,
+    );
+    expect(ha.publish).toHaveBeenCalledWith(
+      'vrm/c0619ab417b5 - USEDASREPLACEMENT AT 1719937767/availability',
+      '',
+      true,
+    );
+    expect(ha.publish).toHaveBeenCalledTimes(4);
   });
 
-  it('does not publish empty retained when the broker has no legacy messages', async () => {
-    const { pub, ha } = publisher(); // collectRetained mock already returns []
+  it('does not call collectRetained (the read-then-publish 300 ms latency ladder is gone)', async () => {
+    const { pub, ha } = publisher();
     await pub.purgeLegacyDiscovery(installations);
-    expect(ha.publish).not.toHaveBeenCalled();
-  });
-
-  it('skips legacy messages whose retained payload is already empty', async () => {
-    const ha = makeMockHa();
-    ha.collectRetained.mockResolvedValue([
-      { topic: 'homeassistant/device/vrm_abc/config', payload: '' },
-    ]);
-    const pub = new DiscoveryPublisher(ha as unknown as HaBrokerClient, '1.0.0');
-
-    await pub.purgeLegacyDiscovery(installations);
-
-    const calls = (ha.publish as jest.Mock).mock.calls as [string, string][];
-    expect(calls.every(([t]) => t !== 'homeassistant/device/vrm_abc/config')).toBe(true);
-  });
-
-  it('does not clear topics that do not exactly match the requested legacy pattern', async () => {
-    // Defensive guard: if collectRetained returns a topic whose name is not the
-    // exact legacy pattern we asked about (e.g. accidental MQTT-wildcard
-    // expansion if an identifier contains '+'/'#', or a live message captured
-    // during the 300 ms collectRetained window), we MUST NOT clear it. Otherwise
-    // we would silently delete unrelated retained state on the HA broker.
-    const ha = makeMockHa();
-    ha.collectRetained.mockImplementation(async (pattern: string) => {
-      if (pattern === 'homeassistant/device/vrm_abc/config') {
-        return [
-          { topic: pattern, payload: '{"device":{}}' },
-          { topic: 'vrm/12345/system/0/Dc/Battery/Soc', payload: '{"value":80}' },
-        ];
-      }
-      return [];
-    });
-    const pub = new DiscoveryPublisher(ha as unknown as HaBrokerClient, '1.0.0');
-
-    await pub.purgeLegacyDiscovery([installations[0]]);
-
-    expect(ha.publish).toHaveBeenCalledWith('homeassistant/device/vrm_abc/config', '', true);
-    const calls = (ha.publish as jest.Mock).mock.calls as [string, string, boolean][];
-    expect(calls.some(([t]) => t === 'vrm/12345/system/0/Dc/Battery/Soc')).toBe(false);
+    expect(ha.collectRetained).not.toHaveBeenCalled();
   });
 });

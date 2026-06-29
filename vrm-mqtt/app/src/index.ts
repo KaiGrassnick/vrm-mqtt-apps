@@ -10,7 +10,12 @@ import packageJson from '../package.json';
 // it here avoids re-reading the file for every DiscoveryPublisher.
 
 let pollInProgress = false;
+let legacyPurgedOnce = false;
 // Singleton module state — shared across every pollInstallations call.
+// `legacyPurgedOnce` gates the one-shot migration that clears any retained
+// legacy identifier-keyed messages from previous (pre-idSite) versions of
+// the bridge. Once cleared, the legacy topics are gone permanently —
+// subsequent polls don't need to re-publish empty retained.
 
 export async function pollInstallations(
   client: VrmApiClient,
@@ -29,9 +34,10 @@ export async function pollInstallations(
     for (const inst of installations) {
       console.log(`[VRM]   - ${inst.name} (${inst.identifier} -> brokerPortalId=${inst.brokerPortalId}) @ ${inst.mqttHost}`);
     }
-    // Idempotent: clears any retained legacy identifier-keyed messages from
-    // previous (pre-idSite) versions of the bridge. Fresh installs no-op.
-    await publisher.purgeLegacyDiscovery(installations);
+    if (!legacyPurgedOnce) {
+      await publisher.purgeLegacyDiscovery(installations);
+      legacyPurgedOnce = true;
+    }
     await manager.reconcile(installations);
   } finally {
     pollInProgress = false;
