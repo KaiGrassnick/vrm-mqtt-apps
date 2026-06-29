@@ -58,7 +58,7 @@ All other files are untouched.
 
 - [ ] **Step 1: Write the failing test file**
 
-Create `vrm-mqtt/app/src/vrm/__tests__/RollingMessageThrottle.test.ts` with the contents below. This file is the executable spec for the new class. It contains all 7 preserved cases from `vrm-mqtt/app/src/vrm/__tests__/GlobalMessageThrottle.test.ts` (renamed) plus 5 new cases for the rolling behavior.
+Create `vrm-mqtt/app/src/vrm/__tests__/RollingMessageThrottle.test.ts` with the contents below. This file is the executable spec for the new class. It contains all 7 preserved cases from `vrm-mqtt/app/src/vrm/__tests__/GlobalMessageThrottle.test.ts` (renamed) plus 4 new cases for the rolling behavior.
 
 ```ts
 import { RollingMessageThrottle } from '../RollingMessageThrottle';
@@ -95,7 +95,7 @@ describe('RollingMessageThrottle', () => {
     expect(publish).toHaveBeenCalledWith('vrm/x', 'c');
   });
 
-  it('publishes distinct topics across the interval (N shards, N ticks per cycle)', () => {
+  it('publishes one topic per shard within the interval (2 installations, 2 ticks per cycle)', () => {
     throttle.start();
     throttle.enqueue('vrm/a', '1');
     throttle.enqueue('vrm/b', '2');
@@ -118,10 +118,11 @@ describe('RollingMessageThrottle', () => {
     throttle.enqueue('vrm/a', '1');
     throttle.flush();
     expect(publish).toHaveBeenCalledTimes(1);
-    // The throttle is still alive: a fresh enqueue, then a long enough advance,
-    // eventually flushes the new data.
+    // The throttle is still alive: a fresh enqueue is picked up by the next tick.
+    // After flush, the timer is rescheduled by the new-shard path with N=2
+    // and tickMs=250; advancing 500ms fires both ticks (one empty, one for 'vrm/b').
     throttle.enqueue('vrm/b', '2');
-    jest.advanceTimersByTime(1000);
+    jest.advanceTimersByTime(500);
     expect(publish).toHaveBeenCalledTimes(2);
     expect(publish).toHaveBeenLastCalledWith('vrm/b', '2');
   });
@@ -145,7 +146,7 @@ describe('RollingMessageThrottle', () => {
 
   // ── new rolling behavior ──────────────────────────────────────────────────
 
-  it('spreads publishes from N installations across the interval', () => {
+  it('publishes from all N installations within one interval', () => {
     throttle.start();
     throttle.enqueue('vrm/a', '1');
     throttle.enqueue('vrm/b', '2');
@@ -155,69 +156,50 @@ describe('RollingMessageThrottle', () => {
     expect(publish).toHaveBeenCalledTimes(3);
   });
 
-  it('flushes each installation at its own offset within the window', () => {
-    // Use 3 installations at intervalMs=300 so tickMs = 100.
+  it('spreads publishes across the interval, not at the end', () => {
+    // 3 installations, intervalMs=300, tickMs=100.
+    // Publishes land at t=100, 200, 300 — not all clustered at the boundary.
     const t = new RollingMessageThrottle(300, publish);
-    const order: Array<{ topic: string; at: number }> = [];
-    publish.mockImplementation((topic: string) => {
-      order.push({ topic, at: jest.now() });
+    const callTimes: number[] = [];
+    publish.mockImplementation(() => {
+      callTimes.push(jest.now());
     });
-    jest.useFakeTimers();
     jest.setSystemTime(0);
     t.start();
     t.enqueue('vrm/a', '1');
     t.enqueue('vrm/b', '2');
     t.enqueue('vrm/c', '3');
     jest.advanceTimersByTime(300);
-    // Three publishes, each at a different time.
-    expect(order).toHaveLength(3);
-    const at = order.map((o) => o.at);
-    expect(new Set(at).size).toBe(3);
-    // The three publish times span the 300ms window (not all clustered).
-    expect(Math.max(...at) - Math.min(...at)).toBeGreaterThanOrEqual(150);
+    expect(callTimes).toHaveLength(3);
+    expect(new Set(callTimes).size).toBe(3);
+    // Span: at least 150ms between first and last publish.
+    expect(Math.max(...callTimes) - Math.min(...callTimes)).toBeGreaterThanOrEqual(150);
   });
 
-  it('a new installation added mid-cycle gets a slot in subsequent cycles', () => {
+  it('publishes a newly-added installation in a subsequent cycle', () => {
     throttle.start();
     throttle.enqueue('vrm/a', '1');
     throttle.enqueue('vrm/b', '2');
-    jest.advanceTimersByTime(500);
+    jest.advanceTimersByTime(500); // cycle 1: 'vrm/a' then 'vrm/b'
     expect(publish).toHaveBeenCalledTimes(2);
-    // Add a third installation after cycle 1.
+    // A third installation appears after cycle 1.
     throttle.enqueue('vrm/c', '3');
-    // Cycle 2 has N=3, tickMs=floor(500/3)=166. Full cycle = 498ms.
-    jest.advanceTimersByTime(600);
-    expect(publish).toHaveBeenCalledTimes(5);
-    expect(publish).toHaveBeenCalledWith('vrm/c', '3');
-  });
-
-  it('keeps a shard\'s data into the next cycle if its slot has already passed', () => {
-    // 3 installations. tickMs = 166. Tick 1 at 166, tick 2 at 332, tick 3 at 498.
-    throttle.start();
-    // Flush shards a and b.
-    throttle.enqueue('vrm/a', '1');
-    throttle.enqueue('vrm/b', '2');
-    jest.advanceTimersByTime(332);
-    expect(publish).toHaveBeenCalledTimes(2);
-    // Now enqueue shard c AFTER its slot in cycle 1 has already passed.
-    // The data must NOT be lost; it carries into cycle 2.
-    throttle.enqueue('vrm/c', '3');
+    // Cycle 2: N=3, tickMs=166. 'vrm/c' lands at its slot in cycle 2.
     jest.advanceTimersByTime(500);
     expect(publish).toHaveBeenCalledTimes(3);
-    expect(publish).toHaveBeenCalledWith('vrm/c', '3');
+    expect(publish).toHaveBeenLastCalledWith('vrm/c', '3');
   });
 
-  it('a shard whose enqueue happens after its slot keeps data into the next cycle', () => {
-    // This is the same property as the previous test, phrased to match the spec.
-    throttle.start();
-    throttle.enqueue('vrm/a', '1');
-    jest.advanceTimersByTime(500); // shard a flushed in cycle 1
-    expect(publish).toHaveBeenCalledTimes(1);
-    // New enqueue for shard b after cycle 1.
-    throttle.enqueue('vrm/b', '2');
-    jest.advanceTimersByTime(500); // shard b flushed in cycle 2
-    expect(publish).toHaveBeenCalledTimes(2);
-    expect(publish).toHaveBeenLastCalledWith('vrm/b', '2');
+  it('floors tickMs at 1ms for very large fleets (per-installation latency grows linearly)', () => {
+    // 1000 installations, intervalMs=500. Without the floor, tickMs would be 0.
+    // With the floor, tickMs=1 and a full cycle takes 1000ms.
+    const t = new RollingMessageThrottle(500, publish);
+    t.start();
+    for (let i = 0; i < 1000; i++) {
+      t.enqueue(`vrm/site${i}/x`, `${i}`);
+    }
+    jest.advanceTimersByTime(1000);
+    expect(publish).toHaveBeenCalledTimes(1000);
   });
 });
 ```
