@@ -1,4 +1,4 @@
-# Forwarding Whitelist + Flexible Aggregation
+# Forwarding Whitelist + Custom Aggregates
 
 **Date:** 2026-06-29
 **Status:** Design — awaiting review
@@ -16,7 +16,9 @@ Additionally, the bridge hardcodes which VRM topics it aggregates. Operators
 who want a different grouping — for example a single PV entity that combines
 the DC PV (`Dc/Pv/Power`) with both AC PV sources (`Ac/PvOnOutput/L{n}/Power`
 and `Ac/PvOnGrid/L{n}/Power`) — must edit `entityDefs.ts` and recompile, with
-no documented extension path.
+no documented extension path. The current `aggregateFrom` is bolted onto the
+general `SensorEntityDef` type, mixed in with regular entities, and the
+discrimination lives in the body of the loop in `DiscoveryConfigBuilder`.
 
 ## Goal
 
@@ -25,9 +27,13 @@ no documented extension path.
 2. Each entity definition has an explicit **forward** flag that controls both
    HA discovery emission and HA-side publish. Default is `false` so new
    entities do not silently appear in HA.
-3. The VRM subscribe list and the `INSTALLATION_PATHS` discovery hint list
-   are both derived from the entity defs — no parallel hardcoded lists.
-4. Operators can add a new aggregate that combines an arbitrary mix of
+3. **Aggregates are a first-class, separate concept** with their own
+   registry and required `aggregateFrom` field. They are not mixed into the
+   normal entity arrays.
+4. The VRM subscribe list and the `INSTALLATION_PATHS` discovery hint list
+   are both derived from the entity defs and custom-aggregate defs — no
+   parallel hardcoded lists.
+5. Operators can add a new aggregate that combines an arbitrary mix of
    template (`L{n}/Power`) and literal (`Dc/Pv/Power`) sources without
    touching any code outside `entityDefs.ts`.
 
@@ -35,65 +41,115 @@ no documented extension path.
 
 ### 1. Entity defs — `vrm-mqtt/app/src/ha/entityDefs.ts`
 
+#### 1a. `forward` flag on the base interface
+
 Add `forward?: boolean` to `EntityDefBase`. Default `false`. Every existing
 entity type (`sensor`, `binary_sensor`, `switch`, `select`, `number`)
 inherits it.
 
-**Forward the following existing entities** by setting `forward: true`:
+#### 1b. New `CustomAggregateEntityDef` type
 
-- `Dc/Battery/Soc`
-- `Dc/Battery/Voltage`
-- `Dc/Battery/State`
-- `Ac/Consumption/AggPower`
-- `Ac/Grid/AggPower`
-- `Ac/Genset/AggPower`
-- `Ac/PvOnOutput/AggPower`
-- `Ac/PvOnGrid/AggPower`
-
-All other existing entities keep the default `forward: false`. In particular
-`Dc/Pv/Power` is **not** forwarded — its sole purpose is to feed the new
-combined PV aggregate below.
-
-**Add the new combined PV aggregate entity:**
+A first-class type for aggregate-only sensors. Distinct from
+`SensorEntityDef` so `aggregateFrom` cannot appear on a normal sensor by
+accident.
 
 ```ts
-{
-  path: 'ZPv/AggPower',
-  component: 'sensor',
-  name: 'PV Aggregate Power',
-  unit: 'W',
-  deviceClass: 'power',
-  stateClass: 'measurement',
-  precision: 1,
-  aggregateFrom: [
-    'Dc/Pv/Power',
-    'Ac/PvOnOutput/L{n}/Power',
-    'Ac/PvOnGrid/L{n}/Power',
-  ],
-  forward: true,
-},
+export interface CustomAggregateEntityDef {
+  /** VRM dbus path the aggregate is published on, e.g. 'Ac/Grid/AggPower'. */
+  path: string;
+  /** Human-readable name shown in Home Assistant. */
+  name: string;
+  /** Required. The VRM paths whose sum becomes this entity's value.
+   *  Templates containing `{n}` are expanded to indices 1, 2, 3.
+   *  Literal paths (e.g. 'Dc/Pv/Power') are kept as-is. */
+  aggregateFrom: string[];
+  unit?: string;
+  deviceClass?: HaSensorDeviceClass;
+  stateClass?: HaStateClass;
+  precision?: number;
+  /** Default false. When true, emit HA discovery and publish the value. */
+  forward?: boolean;
+}
 ```
 
-The `Z` prefix sorts this entity last in discovery payloads and device panels,
-matching the convention used for derived/total metrics.
+`SensorEntityDef` loses its `aggregateFrom` field — aggregates no longer
+ride along with normal sensors.
 
-The existing `Dc/Pv/Power` sensor def stays in place (it is still subscribed
-as an aggregate source) but gets no `forward` flag, so it produces no HA
-discovery config and is not published to HA.
+#### 1c. New `CUSTOM_AGGREGATES` array + `CUSTOM_AGGREGATE_DEFS` registry
+
+Move every existing aggregate out of `SYSTEM_ENTITIES` into a dedicated
+array. The five existing aggregates plus the new combined PV aggregate
+become the first entries.
+
+```ts
+const CUSTOM_AGGREGATES: CustomAggregateEntityDef[] = [
+  // Existing aggregates, previously in SYSTEM_ENTITIES
+  { path: 'Ac/Consumption/AggPower', name: 'AC Consumption Aggregate Power',
+    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
+    aggregateFrom: ['Ac/Consumption/L{n}/Power'], forward: true },
+  { path: 'Ac/Grid/AggPower', name: 'Grid Aggregate Power',
+    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
+    aggregateFrom: ['Ac/Grid/L{n}/Power'], forward: true },
+  { path: 'Ac/Genset/AggPower', name: 'Generator Aggregate Power',
+    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
+    aggregateFrom: ['Ac/Genset/L{n}/Power'], forward: true },
+  { path: 'Ac/PvOnOutput/AggPower', name: 'PV On Output Aggregate Power',
+    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
+    aggregateFrom: ['Ac/PvOnOutput/L{n}/Power'], forward: true },
+  { path: 'Ac/PvOnGrid/AggPower', name: 'PV On Grid Aggregate Power',
+    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
+    aggregateFrom: ['Ac/PvOnGrid/L{n}/Power'], forward: true },
+
+  // New combined PV total — DC + both AC PV sources
+  { path: 'ZPv/AggPower', name: 'PV Aggregate Power',
+    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
+    aggregateFrom: ['Dc/Pv/Power', 'Ac/PvOnOutput/L{n}/Power', 'Ac/PvOnGrid/L{n}/Power'],
+    forward: true },
+];
+
+export const CUSTOM_AGGREGATE_DEFS: Partial<Record<VrmServiceName,
+  readonly CustomAggregateEntityDef[]>> = {
+  system: CUSTOM_AGGREGATES,
+};
+```
+
+The `Z` prefix on `ZPv/AggPower` sorts this entity last in discovery payloads
+and device panels, matching the convention for derived/total metrics.
+
+#### 1d. `SYSTEM_ENTITIES` changes
+
+`SYSTEM_ENTITIES` (vrm-mqtt/app/src/ha/entityDefs.ts:166) loses the five
+existing aggregate entries — they now live in `CUSTOM_AGGREGATES`. Every
+remaining entry keeps its current shape except:
+
+- **Mark `forward: true`** on exactly these three entries:
+  - `Dc/Battery/Soc`
+  - `Dc/Battery/Voltage`
+  - `Dc/Battery/State`
+- `Dc/Pv/Power` is **not** marked forward — its sole purpose is feeding the
+  new combined PV aggregate. It is still subscribed as an aggregate source
+  but produces no HA entity and no HA publish.
+
+All other existing system entities (per-phase L{n} readings, the rest of the
+battery metrics, ESS controls, system state, timers, IO, etc.) keep the
+default `forward: false` and therefore do not appear in HA after the change.
 
 ### 2. Shared path-expansion helper — `vrm-mqtt/app/src/ha/observedPaths.ts` (new)
 
 A single helper produces the set of "paths the bridge ever sees on the bus"
-from the entity defs. Both the VRM-side subscription and the HA-side
-`INSTALLATION_PATHS` consume it.
+from the entity defs **and** the custom-aggregate defs. Both the VRM-side
+subscription and the HA-side `INSTALLATION_PATHS` consume it.
 
 ```ts
 /**
  * Expand every {n} placeholder in entity `path` and `aggregateFrom` entries
  * to the standard L-phase indices (1, 2, 3). Literal paths are kept as-is.
  * The result is the union of:
- *   - all aggregate source paths (literal + template-expanded)
- *   - all paths from entities with forward: true (literal + template-expanded)
+ *   - all aggregate source paths from CUSTOM_AGGREGATE_DEFS (literal +
+ *     template-expanded), regardless of the aggregate's forward flag —
+ *     sources must be subscribed even if the aggregate itself isn't published
+ *   - all paths from entities with forward: true in SERVICE_ENTITY_DEFS
+ *     (literal + template-expanded)
  * Returned sorted, deduplicated.
  */
 export function getObservedPaths(): string[];
@@ -113,22 +169,23 @@ After this change the resulting topic set is unchanged in cardinality (9
 topics) but is derived rather than hardcoded:
 
 - `Dc/Pv/Power` — aggregate source for `ZPv/AggPower`
-- `Dc/Battery/Soc` — forward
-- `Dc/Battery/Voltage` — forward
-- `Dc/Battery/State` — forward
-- `Ac/Grid/+/Power` — aggregate sources for `Ac/Grid/AggPower`
-- `Ac/Consumption/+/Power` — aggregate sources for `Ac/Consumption/AggPower`
-- `Ac/Genset/+/Power` — aggregate sources for `Ac/Genset/AggPower`
+- `Dc/Battery/Soc` — forward (normal entity)
+- `Dc/Battery/Voltage` — forward (normal entity)
+- `Dc/Battery/State` — forward (normal entity)
+- `Ac/Grid/+/Power` — aggregate source for `Ac/Grid/AggPower`
+- `Ac/Consumption/+/Power` — aggregate source for `Ac/Consumption/AggPower`
+- `Ac/Genset/+/Power` — aggregate source for `Ac/Genset/AggPower`
 - `Ac/PvOnGrid/+/Power` — aggregate sources for both `Ac/PvOnGrid/AggPower`
   and `ZPv/AggPower`
 - `Ac/PvOnOutput/+/Power` — aggregate sources for both
   `Ac/PvOnOutput/AggPower` and `ZPv/AggPower`
 
-If someone later adds a new forward: true entity or a new aggregate with a
-literal source path, the subscription list updates automatically.
+If someone later adds a new forward: true entity or a new custom aggregate
+with a literal source path, the subscription list updates automatically.
 
 `expandAggregateSourcePaths` (the local helper in
-`MqttBridgeConnection.ts:27`) is replaced by calls into the shared helper.
+`MqttBridgeConnection.ts:27`) is removed — the shared helper covers its
+job.
 
 ### 4. Routing — `MqttBridgeConnection.handleMessage`
 
@@ -144,7 +201,9 @@ Build the forward set at constructor time:
 
 ```ts
 private readonly forwardPaths: ReadonlySet<string>;
-// = getObservedPaths().filter(p => /* entity def for p has forward: true */)
+// = paths from entities in SERVICE_ENTITY_DEFS['system'] with forward:true
+//   ∪ paths from CUSTOM_AGGREGATE_DEFS['system'] with forward:true
+// (Both sets, expanded for {n}, deduplicated.)
 ```
 
 In `handleMessage`:
@@ -160,24 +219,50 @@ if (this.forwardPaths.has(parsed.path)) {
 clear retained state for each tracked topic — the same defensive cleanup,
 but now correctly limited to topics HA actually saw.
 
-**Aggregate outputs are inherently safe.** `buildAggregator` is updated to
-filter on `def.forward`. Only forward: true aggregates ever produce messages,
-so no separate forward-check is needed for the aggregate branch.
+`buildAggregator` is updated to iterate over
+`CUSTOM_AGGREGATE_DEFS['system'] ?? []`, filtering by `def.forward`. Only
+forward: true aggregates ever produce messages, so no separate forward-check
+is needed for the aggregate branch.
 
 ### 5. Discovery — `DiscoveryConfigBuilder.ts` and `InstallationDevice.ts`
 
 **`DiscoveryConfigBuilder.buildDiscoveryConfigs`** (vrm-mqtt/app/src/ha/DiscoveryConfigBuilder.ts:29):
-wrap the existing loop body in `if (def.forward)`. The template, aggregate,
-and observed-path branches all become opt-in. Aggregate emission still
-requires at least one expanded source path (existing behaviour).
+the loop body becomes `if (def.forward) { ... }` for normal entities, and
+the aggregate branch is removed from this loop entirely. The aggregate
+emission now lives in a separate post-pass that consumes
+`CUSTOM_AGGREGATE_DEFS[service] ?? []`.
+
+The function signature gains an optional `customAggregates` parameter
+(defaults to `[]`) so the existing call sites stay unchanged in shape:
+
+```ts
+export function buildDiscoveryConfigs(
+  idSite: number,
+  service: VrmServiceName,
+  instance: string | number,
+  meta: DeviceMeta,
+  observedPaths: string[],
+  customAggregates: readonly CustomAggregateEntityDef[] = [],
+): HaDiscoveryConfig[];
+```
+
+For each forward: true custom aggregate, emit a sensor config if at least
+one expanded source appears in `observedPaths` (same gating the old code
+applied). Re-uses the existing `expandAggregateSourcePaths` helper.
 
 **`InstallationDevice.ts`** replaces the hardcoded `INSTALLATION_PATHS`
-constant with a call into the shared helper:
+constant with a call into the shared helper, and passes the custom
+aggregates:
 
 ```ts
 import { getObservedPaths } from './observedPaths';
+import { CUSTOM_AGGREGATE_DEFS } from './entityDefs';
 // ...
-const configs = buildDiscoveryConfigs(idSite, 'system', 0, meta, getObservedPaths());
+const configs = buildDiscoveryConfigs(
+  idSite, 'system', 0, meta,
+  getObservedPaths(),
+  CUSTOM_AGGREGATE_DEFS.system ?? [],
+);
 ```
 
 This removes the parallel list of 19 paths that has to be kept in sync with
@@ -220,8 +305,13 @@ Bandwidth and CPU on the VRM side are unaffected.
 - `vrm-mqtt/app/src/vrm/__tests__/MqttBridgeConnection.test.ts:146` — the test
   "subscribes to exactly 9 topics" still holds; the count is unchanged.
 - `vrm-mqtt/app/src/ha/__tests__/DiscoveryConfigBuilder.test.ts:200-278` —
-  aggregate-emission tests still pass because every existing aggregate gets
-  `forward: true`. Add coverage for forward:false entities not being emitted.
+  aggregate-emission tests still pass because every existing aggregate has
+  `forward: true`. Update the setup so it passes the new
+  `customAggregates` parameter, and add coverage for:
+  - forward:false normal entity not emitted
+  - forward:true normal entity emitted
+  - forward:true custom aggregate emitted when at least one source observed
+  - forward:false custom aggregate not emitted
 - `vrm-mqtt/app/src/vrm/__tests__/MqttBridgeConnection.test.ts` aggregate
   section (lines 621+) — add a test that verifies a literal source
   (`Dc/Pv/Power`) feeds `ZPv/AggPower` and that the aggregate sums DC + AC
@@ -231,9 +321,10 @@ Bandwidth and CPU on the VRM side are unaffected.
 
 - `vrm-mqtt/app/src/ha/__tests__/observedPaths.test.ts` — covers
   `getObservedPaths()`:
-  - Expands `{n}` to `1`, `2`, `3`.
+  - Expands `{n}` to `1`, `2`, `3` for both normal-entity paths and
+    custom-aggregate `aggregateFrom` entries.
   - Keeps literal paths unchanged.
-  - Unions aggregate sources and forward paths.
+  - Includes aggregate sources regardless of the aggregate's `forward` flag.
   - Dedupes overlapping sources.
   - Returns sorted output.
 - Update `MqttBridgeConnection.test.ts` retained-clear section to verify that
@@ -243,8 +334,9 @@ Bandwidth and CPU on the VRM side are unaffected.
 
 - `vrm-mqtt/DOCS.md:57` — the discovery example mentions `pv_power`. Update
   the example to `pv_aggregate_power` (or whatever slug `ZPv/AggPower`
-  produces) and add a one-line note that operators can edit
-  `entityDefs.ts` to add new forward entities or aggregates.
+  produces) and add a one-line note that operators can add new entries to
+  `SYSTEM_ENTITIES` (forward: true) or `CUSTOM_AGGREGATES` to extend the
+  bridge.
 - No change needed to the per-topic mapping reference (it still covers the
   full VRM topic tree; the bridge just forwards fewer of them).
 
@@ -255,5 +347,8 @@ Bandwidth and CPU on the VRM side are unaffected.
   `MqttBridgeConnection` subscription covers `vebus` or `platform`); the
   flag defaults to `false` everywhere, which is consistent. Explicit
   opt-in for those services is a follow-up if needed.
+- Custom aggregates for non-system services. The `CUSTOM_AGGREGATE_DEFS`
+  registry is keyed by `VrmServiceName`, so the structure supports
+  `vebus`/`platform` aggregates later without further design changes.
 - HA-side dashboards in `docs/homeassistant/`. Out of scope; operators
   regenerate their own dashboards when entity IDs change.
