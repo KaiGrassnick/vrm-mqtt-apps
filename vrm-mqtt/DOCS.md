@@ -50,11 +50,25 @@ Entities are published on a stable schema. Example for installation
 `123456`:
 
 - `homeassistant/sensor/vrm-123456/battery_soc/config` → battery state of charge
-- `homeassistant/sensor/vrm-123456/pv_power/config` → PV yield
-- `homeassistant/binary_sensor/vrm-123456/grid_connected/config`
+- `homeassistant/sensor/vrm-123456/battery_voltage/config` → battery voltage
+- `homeassistant/sensor/vrm-123456/battery_state/config` → battery state
+- `homeassistant/sensor/vrm-123456/z_aggregate_pv_power/config` → PV power (DC + AC combined)
+- `homeassistant/sensor/vrm-123456/z_aggregate_ac_grid_power/config` → grid power (3-phase sum)
+
+After startup the device panel contains 7 entities per installation:
+3 battery sensors (`Dc/Battery/Soc`, `Dc/Battery/Voltage`, `Dc/Battery/State`)
+and 4 `Z/Aggregate/*` aggregates. Per-phase readings and most other VRM
+topics are subscribed internally (to feed the aggregates) but are not
+exposed in HA.
 
 The full per-topic mapping is documented in
 [`docs/debug/topics/topics.txt`](https://github.com/KaiGrassnick/vrm-mqtt-apps/blob/main/vrm-mqtt/docs/debug/topics/topics.txt).
+
+To expose additional entities, set `forward: true` on the corresponding
+entry in `vrm-mqtt/app/src/ha/entityDefs.ts` (`SYSTEM_ENTITIES`). To define a
+new aggregate (e.g. a per-phase PV breakdown), add an entry to
+`CUSTOM_AGGREGATES` in the same file — `aggregateFrom` is required and may
+mix `{n}`-template and literal source paths.
 
 ## Dashboard
 
