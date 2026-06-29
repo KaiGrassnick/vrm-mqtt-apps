@@ -38,22 +38,22 @@ function toComponents(configs: HaDiscoveryConfig[]): Record<string, HaDeviceDisc
  * One device, 13 fixed summary entities, all on system/0.
  */
 export function buildInstallationDiscovery(
-  portalId: string,
+  idSite: number,
   installationName: string,
   appVersion: string,
 ): HaDeviceDiscoveryPayload {
   const meta = { productName: 'Victron Energy', customName: installationName };
-  const configs = buildDiscoveryConfigs(portalId, 'system', 0, meta, [...INSTALLATION_PATHS]);
+  const configs = buildDiscoveryConfigs(idSite, 'system', 0, meta, [...INSTALLATION_PATHS]);
 
   return {
     device: {
-      identifiers: [`vrm_${portalId}`],
+      identifiers: [`vrm_${idSite}`],
       name: installationName,
       manufacturer: 'Victron Energy',
       model: 'Victron Energy System',
     },
     origin: { name: 'vrm-mqtt', sw_version: appVersion },
-    availability_topic: `vrm/${portalId}/availability`,
+    availability_topic: `vrm/${idSite}/availability`,
     components: toComponents(configs),
   };
 }

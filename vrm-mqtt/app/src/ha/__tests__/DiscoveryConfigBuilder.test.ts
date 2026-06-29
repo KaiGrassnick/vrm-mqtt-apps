@@ -1,7 +1,8 @@
 import { buildDiscoveryConfigs, matchTemplateIndices } from '../DiscoveryConfigBuilder';
 import type { DeviceMeta, HaSelectConfig, HaNumberConfig } from '../types';
 
-const PORTAL = 'abc123';
+const ID_SITE = 12345;
+const v = (suffix: string) => `vrm_${ID_SITE}_${suffix}`;
 const META: DeviceMeta = { productName: 'SmartShunt 500A', firmwareVersion: 'v4.12' };
 
 // ── matchTemplateIndices ─────────────────────────────────────────────────────
@@ -55,26 +56,26 @@ describe('matchTemplateIndices', () => {
 describe('buildDiscoveryConfigs', () => {
   describe('returns empty array for unknown services', () => {
     it('platform has no entity defs', () => {
-      expect(buildDiscoveryConfigs(PORTAL, 'platform', 0, META, [])).toEqual([]);
+      expect(buildDiscoveryConfigs(ID_SITE, 'platform', 0, META, [])).toEqual([]);
     });
   });
 
   describe('device object', () => {
     it('omits via_device for system service', () => {
-      const configs = buildDiscoveryConfigs(PORTAL, 'system', 0, META, ['Dc/Battery/Soc']);
+      const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['Dc/Battery/Soc']);
       const config = configs.find(c => c.unique_id.includes('soc'));
       expect(config?.device.via_device).toBeUndefined();
     });
 
     it('uses the portal-level identifier for system service', () => {
-      const configs = buildDiscoveryConfigs(PORTAL, 'system', 0, META, ['Dc/Battery/Soc']);
-      expect(configs[0].device.identifiers).toEqual([`vrm_${PORTAL}_system`]);
+      const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['Dc/Battery/Soc']);
+      expect(configs[0].device.identifiers).toEqual([v('system')]);
     });
   });
 
   describe('index never observed', () => {
     it('emits nothing when the index never appears in observed paths', () => {
-      const configs = buildDiscoveryConfigs(PORTAL, 'charger', 30, META, ['Dc/0/Current']);
+      const configs = buildDiscoveryConfigs(ID_SITE, 'charger', 30, META, ['Dc/0/Current']);
       expect(configs.find(c => c.unique_id.includes('dc_0_voltage'))).toBeUndefined();
     });
   });
@@ -85,9 +86,9 @@ describe('buildDiscoveryConfigs', () => {
     let config: HaSelectConfig;
 
     beforeEach(() => {
-      const configs = buildDiscoveryConfigs(PORTAL, 'vebus', 256, META, ['Mode']);
+      const configs = buildDiscoveryConfigs(ID_SITE, 'vebus', 256, META, ['Mode']);
       config = configs.find(c =>
-        c.unique_id === `vrm_${PORTAL}_vebus_256_mode`,
+        c.unique_id === v('vebus_256_mode'),
       ) as HaSelectConfig;
     });
 
@@ -115,11 +116,11 @@ describe('buildDiscoveryConfigs', () => {
     let config: HaNumberConfig;
 
     beforeEach(() => {
-      const configs = buildDiscoveryConfigs(PORTAL, 'vebus', 256, META, [
+      const configs = buildDiscoveryConfigs(ID_SITE, 'vebus', 256, META, [
         'Ac/In/1/CurrentLimit',
       ]);
       config = configs.find(c =>
-        c.unique_id === `vrm_${PORTAL}_vebus_256_ac_in_1_currentlimit`,
+        c.unique_id === v('vebus_256_ac_in_1_currentlimit'),
       ) as HaNumberConfig;
     });
 
@@ -145,7 +146,7 @@ describe('buildDiscoveryConfigs', () => {
 
 describe('value_template defensiveness', () => {
   it('sensor (numeric) value_template defaults to "Unknown" when value_json is undefined', () => {
-    const configs = buildDiscoveryConfigs(PORTAL, 'system', 0, META, ['Dc/Battery/Voltage']);
+    const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['Dc/Battery/Voltage']);
     const config = configs.find(c => c.component === 'sensor');
     // Jinja's `default()` filter is applied to the result of `value_json.value`;
     // when value_json itself is undefined, accessing `.value` raises UndefinedError
@@ -156,21 +157,21 @@ describe('value_template defensiveness', () => {
   });
 
   it('enum sensor value_template guards against missing value_json', () => {
-    const configs = buildDiscoveryConfigs(PORTAL, 'system', 0, META, ['Ac/ActiveIn/Source']);
+    const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['Ac/ActiveIn/Source']);
     const config = configs.find(c => c.component === 'sensor');
     expect(config?.value_template).toContain("{% if value_json is defined %}");
     expect(config?.value_template).toContain("{% else %}Unknown{% endif %}");
   });
 
   it('select value_template guards against missing value_json', () => {
-    const configs = buildDiscoveryConfigs(PORTAL, 'vebus', 256, META, ['Mode']);
+    const configs = buildDiscoveryConfigs(ID_SITE, 'vebus', 256, META, ['Mode']);
     const config = configs.find(c => c.component === 'select');
     expect(config?.value_template).toContain("{% if value_json is defined %}");
     expect(config?.value_template).toContain("{% else %}Unknown{% endif %}");
   });
 
   it('binary_sensor value_template defaults to "OFF" when value_json is undefined', () => {
-    const configs = buildDiscoveryConfigs(PORTAL, 'system', 0, META, ['DynamicEss/Active']);
+    const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['DynamicEss/Active']);
     const config = configs.find(c => c.component === 'binary_sensor');
     expect(config?.value_template).toBe(
       "{% if value_json is defined and value_json.value | int > 0 %}ON{% else %}OFF{% endif %}",
@@ -178,7 +179,7 @@ describe('value_template defensiveness', () => {
   });
 
   it('switch value_template defaults to "0" when value_json is undefined', () => {
-    const configs = buildDiscoveryConfigs(PORTAL, 'system', 0, META, ['Relay/0/State']);
+    const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['Relay/0/State']);
     const config = configs.find(c => c.component === 'switch');
     expect(config?.value_template).toBe(
       "{% if value_json is defined %}{{ value_json.value | int }}{% else %}0{% endif %}",
@@ -186,7 +187,7 @@ describe('value_template defensiveness', () => {
   });
 
   it('number value_template defaults to "0" when value_json is undefined', () => {
-    const configs = buildDiscoveryConfigs(PORTAL, 'vebus', 256, META, ['Ac/In/1/CurrentLimit']);
+    const configs = buildDiscoveryConfigs(ID_SITE, 'vebus', 256, META, ['Ac/In/1/CurrentLimit']);
     const config = configs.find(c => c.component === 'number');
     expect(config?.value_template).toBe(
       "{% if value_json is defined %}{{ value_json.value }}{% else %}0{% endif %}",
