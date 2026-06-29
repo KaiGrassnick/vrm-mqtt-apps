@@ -92,7 +92,7 @@ export class InstallationManager {
           ha: this.ha,
           publisher: this.publisher,
           globalThrottle: this.globalThrottle,
-          getIdSite: (brokerPortalId) =>
+          getIdSite: (brokerPortalId): number | undefined =>
             brokerPortalId === installation.brokerPortalId ? installation.idSite : undefined,
         });
         if (!this.suspended) {

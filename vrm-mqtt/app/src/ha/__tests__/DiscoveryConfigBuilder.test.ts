@@ -2,7 +2,7 @@ import { buildDiscoveryConfigs, matchTemplateIndices } from '../DiscoveryConfigB
 import type { DeviceMeta, HaSelectConfig, HaNumberConfig } from '../types';
 
 const ID_SITE = 12345;
-const v = (suffix: string) => `vrm_${ID_SITE}_${suffix}`;
+const v = (suffix: string): string => `vrm_${ID_SITE}_${suffix}`;
 const META: DeviceMeta = { productName: 'SmartShunt 500A', firmwareVersion: 'v4.12' };
 
 // ── matchTemplateIndices ─────────────────────────────────────────────────────

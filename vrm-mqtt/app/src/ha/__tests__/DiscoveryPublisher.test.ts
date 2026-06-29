@@ -9,7 +9,7 @@ function makeMockHa(): jest.Mocked<Pick<HaBrokerClient, 'publish' | 'collectReta
   };
 }
 
-function publisher(ha = makeMockHa()) {
+function publisher(ha: jest.Mocked<Pick<HaBrokerClient, 'publish' | 'collectRetained'>> = makeMockHa()): { pub: DiscoveryPublisher; ha: jest.Mocked<Pick<HaBrokerClient, 'publish' | 'collectRetained'>> } {
   return { pub: new DiscoveryPublisher(ha as unknown as HaBrokerClient, '1.0.0'), ha };
 }
 

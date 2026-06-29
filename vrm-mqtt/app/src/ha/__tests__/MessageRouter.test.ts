@@ -45,7 +45,7 @@ describe('parseVrmTopic', () => {
 // ── routeFromVrm ──────────────────────────────────────────────────────────────
 
 describe('routeFromVrm', () => {
-  const idSiteFor = (brokerPortalId: string) =>
+  const idSiteFor = (brokerPortalId: string): number | undefined =>
     brokerPortalId === 'abc123' ? 42 : undefined;
 
   it('rewrites N/… to vrm/…, payload unchanged', () => {

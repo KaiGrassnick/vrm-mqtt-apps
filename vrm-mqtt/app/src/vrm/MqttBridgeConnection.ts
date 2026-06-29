@@ -50,14 +50,14 @@ export class MqttBridgeConnection {
     this.pool = pool;
     this.subscribeTopics = this.buildSubscribeTopics();
     this.keepaliveTopic = `R/${installation.brokerPortalId}/keepalive`;
-    this.throttle = globalThrottle ?? new MessageThrottle(throttleIntervalMs, (topic, payload) => ha.publish(topic, payload));
-    this.getIdSite = getIdSite ?? (() => undefined);
+    this.throttle = globalThrottle ?? new MessageThrottle(throttleIntervalMs, (topic, payload): void => ha.publish(topic, payload));
+    this.getIdSite = getIdSite ?? ((): undefined => undefined);
 
-    this.boundHandleConnect = () => { this.handleConnect(); };
-    this.boundHandleMessage = (topic, payload) => { this.handleMessage(topic, payload); };
-    this.boundHandleError = (err) => { this.handleError(err); };
-    this.boundHandleOffline = () => { this.handleOffline(); };
-    this.boundHandleReconnect = () => {
+    this.boundHandleConnect = (): void => { this.handleConnect(); };
+    this.boundHandleMessage = (topic, payload): void => { this.handleMessage(topic, payload); };
+    this.boundHandleError = (err): void => { this.handleError(err); };
+    this.boundHandleOffline = (): void => { this.handleOffline(); };
+    this.boundHandleReconnect = (): void => {
       console.log(`[MQTT] Reconnecting for ${this.installation.name} (${this.installation.identifier})`);
     };
   }

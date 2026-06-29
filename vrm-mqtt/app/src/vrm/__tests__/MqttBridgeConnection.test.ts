@@ -17,8 +17,9 @@ const installation: VrmInstallation = {
 
 const { identifier: _PORTAL, brokerPortalId: PORTAL } = installation;
 
-const idSiteFor = (inst: VrmInstallation) =>
-  (brokerPortalId: string) => (brokerPortalId === inst.brokerPortalId ? inst.idSite : undefined);
+const idSiteFor = (inst: VrmInstallation): ((brokerPortalId: string) => number | undefined) =>
+  (brokerPortalId: string): number | undefined =>
+    (brokerPortalId === inst.brokerPortalId ? inst.idSite : undefined);
 
 function makeMockClient(connected = false): EventEmitter & { connected: boolean; subscribe: jest.Mock; unsubscribe: jest.Mock; publish: jest.Mock; off: jest.Mock } {
   const emitter = new EventEmitter();
@@ -41,10 +42,10 @@ function makeMockClient(connected = false): EventEmitter & { connected: boolean;
   });
 }
 
-function makeMockHa() {
+function makeMockHa(): { publish: jest.Mock } {
   return { publish: jest.fn() };
 }
-function makeMockPublisher() {
+function makeMockPublisher(): { publishAvailability: jest.Mock; publishInstallation: jest.Mock } {
   return { publishAvailability: jest.fn(), publishInstallation: jest.fn() };
 }
 
@@ -375,7 +376,12 @@ describe('MqttBridgeConnection', () => {
     const idSite = installation.idSite;
     const INTERVAL = 100;
 
-    function makeThrottledConn() {
+    function makeThrottledConn(): {
+      client: ReturnType<typeof makeMockClient>;
+      ha: ReturnType<typeof makeMockHa>;
+      publisher: ReturnType<typeof makeMockPublisher>;
+      conn: MqttBridgeConnection;
+    } {
       const client = makeMockClient(false);
       const ha = makeMockHa();
       const publisher = makeMockPublisher();
@@ -392,7 +398,7 @@ describe('MqttBridgeConnection', () => {
       return { client, ha, publisher, conn };
     }
 
-    function emit(client: ReturnType<typeof makeMockClient>, topic: string, payload: string) {
+    function emit(client: ReturnType<typeof makeMockClient>, topic: string, payload: string): void {
       client.emit('message', topic, Buffer.from(payload));
     }
 

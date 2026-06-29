@@ -20,7 +20,7 @@ describe('pollInstallations overlapping-guard', () => {
   it('skips a poll while a previous one is still running', async () => {
     let resolveFirst: (() => void) | null = null;
     const fetchMock = jest.fn().mockImplementation(() =>
-      new Promise<never>((resolve) => { resolveFirst = () => resolve({ ok: true, text: async () => '{"success":true,"records":[]}' } as never); }),
+      new Promise<never>((resolve): void => { resolveFirst = (): void => resolve({ ok: true, text: async () => '{"success":true,"records":[]}' } as never); }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;
 

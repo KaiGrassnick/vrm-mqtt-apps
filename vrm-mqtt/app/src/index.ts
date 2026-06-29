@@ -87,13 +87,13 @@ async function main(): Promise<void> {
     installationStartupDelayMs: config.vrm.installationStartupDelayMs,
   });
 
-  ha.onConnect = () => { manager.resume(); };
-  ha.onOffline = () => { void manager.suspend(); };
-  ha.onBirth = () => {
+  ha.onConnect = (): void => { manager.resume(); };
+  ha.onOffline = (): void => { void manager.suspend(); };
+  ha.onBirth = (): void => {
     console.log('[HA] Birth message received — re-publishing discovery configs');
     publisher.onHaBirth();
   };
-  ha.onCommand = (topic, payload) => { manager.routeHaCommand(topic, payload); };
+  ha.onCommand = (topic, payload): void => { manager.routeHaCommand(topic, payload); };
 
   ha.start();
 
