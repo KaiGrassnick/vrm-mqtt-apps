@@ -8,7 +8,6 @@ This repository contains the following apps
 
 ### [VRM MQTT](./vrm-mqtt)
 
-![Supports aarch64 Architecture][aarch64-shield]
 ![Supports amd64 Architecture][amd64-shield]
 
 _VRM MQTT which connects to VRM API to fetch all Installations, Connect to VRM MQTT Broker for each installation and forwards specific messages to MQTT Broker using Autodiscovery._
@@ -33,5 +32,4 @@ Notes to developers after forking or using the github template feature:
 - Do awesome stuff!
  -->
 
-[aarch64-shield]: https://img.shields.io/badge/aarch64-yes-green.svg
 [amd64-shield]: https://img.shields.io/badge/amd64-yes-green.svg

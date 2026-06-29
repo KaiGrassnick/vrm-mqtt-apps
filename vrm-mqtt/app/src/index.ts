@@ -10,18 +10,12 @@ import packageJson from '../package.json';
 // it here avoids re-reading the file for every DiscoveryPublisher.
 
 let pollInProgress = false;
-let legacyPurgedOnce = false;
 // Singleton module state — shared across every pollInstallations call.
-// `legacyPurgedOnce` gates the one-shot migration that clears any retained
-// legacy identifier-keyed messages from previous (pre-idSite) versions of
-// the bridge. Once cleared, the legacy topics are gone permanently —
-// subsequent polls don't need to re-publish empty retained.
 
 export async function pollInstallations(
   client: VrmApiClient,
   manager: InstallationManager,
   user: VrmUser,
-  publisher: DiscoveryPublisher,
 ): Promise<void> {
   if (pollInProgress) {
     console.log('[Main] Poll already in progress, skipping tick');
@@ -33,10 +27,6 @@ export async function pollInstallations(
     console.log(`[VRM] Found ${installations.length} installation(s)`);
     for (const inst of installations) {
       console.log(`[VRM]   - ${inst.name} (${inst.identifier} -> brokerPortalId=${inst.brokerPortalId}) @ ${inst.mqttHost}`);
-    }
-    if (!legacyPurgedOnce) {
-      await publisher.purgeLegacyDiscovery(installations);
-      legacyPurgedOnce = true;
     }
     await manager.reconcile(installations);
   } finally {
@@ -98,7 +88,7 @@ async function main(): Promise<void> {
   ha.start();
 
   const pollTimer = setInterval(() => {
-    pollInstallations(client, manager, user, publisher).catch(handlePollError);
+    pollInstallations(client, manager, user).catch(handlePollError);
   }, config.vrm.pollIntervalMs);
 
   const shutdown = async (): Promise<void> => {
@@ -115,7 +105,7 @@ async function main(): Promise<void> {
 
   console.log(`[VRM] Starting VRM MQTT Bridge (poll interval: ${config.vrm.pollIntervalMs}ms)`);
 
-  await pollInstallations(client, manager, user, publisher).catch(handlePollError);
+  await pollInstallations(client, manager, user).catch(handlePollError);
 }
 
 main().catch((err: unknown) => {

@@ -1,6 +1,5 @@
 import { DiscoveryPublisher } from '../DiscoveryPublisher';
 import type { HaBrokerClient } from '../HaBrokerClient';
-import type { VrmInstallation } from '../../vrm/types';
 
 function makeMockHa(): jest.Mocked<Pick<HaBrokerClient, 'publish' | 'collectRetained'>> {
   return {
@@ -43,11 +42,11 @@ describe('publishInstallation', () => {
     expect(payload.components).toBeDefined();
   });
 
-  it('payload has 16 components (13 raw paths + 3 L-phase aggregates)', () => {
+  it('payload has 20 components (16 raw paths + 4 L-phase aggregates)', () => {
     const { pub, ha } = publisher();
     pub.publishInstallation(ID_SITE, NAME);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
-    expect(Object.keys(payload.components)).toHaveLength(16);
+    expect(Object.keys(payload.components)).toHaveLength(20);
   });
 
   it('components use platform instead of component, and have no device field', () => {
@@ -211,39 +210,5 @@ describe('onHaBirth', () => {
     const { pub, ha } = publisher();
     pub.onHaBirth();
     expect(ha.publish).not.toHaveBeenCalled();
-  });
-});
-
-// ── purgeLegacyDiscovery ──────────────────────────────────────────────────────
-
-describe('purgeLegacyDiscovery', () => {
-  const installations: VrmInstallation[] = [
-    { idSite: 1, name: 'A', identifier: 'abc', brokerPortalId: 'abc', mqttHost: 'h', mqttWebHost: 'h' },
-    { idSite: 2, name: 'B', identifier: 'samplePortalId - USEDASREPLACEMENT AT 1234567890', brokerPortalId: 'samplePortalId', mqttHost: 'h', mqttWebHost: 'h' },
-  ];
-
-  it('publishes empty retained directly to each legacy topic (no broker subscription)', async () => {
-    const { pub, ha } = publisher();
-    await pub.purgeLegacyDiscovery(installations);
-    // 2 legacy topics × 2 installations = 4 publishes total.
-    expect(ha.publish).toHaveBeenCalledWith('homeassistant/device/vrm_abc/config', '', true);
-    expect(ha.publish).toHaveBeenCalledWith('vrm/abc/availability', '', true);
-    expect(ha.publish).toHaveBeenCalledWith(
-      'homeassistant/device/vrm_samplePortalId - USEDASREPLACEMENT AT 1234567890/config',
-      '',
-      true,
-    );
-    expect(ha.publish).toHaveBeenCalledWith(
-      'vrm/samplePortalId - USEDASREPLACEMENT AT 1234567890/availability',
-      '',
-      true,
-    );
-    expect(ha.publish).toHaveBeenCalledTimes(4);
-  });
-
-  it('does not call collectRetained (the read-then-publish 300 ms latency ladder is gone)', async () => {
-    const { pub, ha } = publisher();
-    await pub.purgeLegacyDiscovery(installations);
-    expect(ha.collectRetained).not.toHaveBeenCalled();
   });
 });

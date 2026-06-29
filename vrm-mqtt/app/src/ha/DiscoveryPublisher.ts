@@ -1,6 +1,5 @@
 import type { HaBrokerClient } from './HaBrokerClient';
 import { buildInstallationDiscovery } from './InstallationDevice';
-import type { VrmInstallation } from '../vrm/types';
 
 interface PublishedInstallation {
   discoveryTopic: string;
@@ -97,36 +96,5 @@ export class DiscoveryPublisher {
     };
 
     publishBatch(0);
-  }
-
-  /**
-   * One-time purge of legacy (identifier-keyed) HA discovery and availability
-   * messages from a previous release. Called once before the first reconcile
-   * so an upgrading user doesn't accumulate dead devices.
-   *
-   * Implementation: publish empty retained directly to each legacy topic.
-   * Empty retained on a topic without a retained payload is a no-op for HA's
-   * discovery semantics; on a real legacy topic it clears the device.
-   *
-   * Why no read-then-publish: collecting retained messages requires a 300 ms
-   * subscribe window per topic, which at fleet scale (60 s for 100
-   * installations, ~2 min for 200) added per-poll latency without value,
-   * because the clear (publish empty retained) is idempotent and safe to fire
-   * unconditionally.
-   *
-   * Idempotent: a fresh install publishes empty retained to never-existed
-   * topics; HA treats that as 'no device here'.
-   */
-  async purgeLegacyDiscovery(installations: readonly VrmInstallation[]): Promise<void> {
-    for (const inst of installations) {
-      const legacyTopics = [
-        `homeassistant/device/vrm_${inst.identifier}/config`,
-        `vrm/${inst.identifier}/availability`,
-      ] as const;
-      for (const topic of legacyTopics) {
-        this.ha.publish(topic, '', true);
-      }
-    }
-    console.log(`[Discovery] Purged legacy HA topics for ${installations.length} installation(s)`);
   }
 }
