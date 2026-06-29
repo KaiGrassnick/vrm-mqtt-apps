@@ -1,4 +1,4 @@
-import { SERVICE_ENTITY_DEFS, CUSTOM_AGGREGATE_DEFS } from '../entityDefs';
+import { SERVICE_ENTITY_DEFS, CUSTOM_ENTITY_DEFS } from '../entityDefs';
 import type { SensorEntityDef, CustomAggregateEntityDef } from '../entityDefs';
 
 describe('entityDefs', () => {
@@ -29,28 +29,28 @@ describe('entityDefs', () => {
     });
   });
 
-  describe('CUSTOM_AGGREGATE_DEFS', () => {
-    it('contains the four expected system aggregates', () => {
-      const aggs = CUSTOM_AGGREGATE_DEFS.system ?? [];
+  describe('CUSTOM_ENTITY_DEFS', () => {
+    it('contains the four expected aggregate entries', () => {
+      const aggs = CUSTOM_ENTITY_DEFS.aggregate;
       const paths = aggs.map((a) => a.path).sort();
       expect(paths).toEqual([
-        'Z/Aggregate/Ac/Consumption/Power',
-        'Z/Aggregate/Ac/Genset/Power',
-        'Z/Aggregate/Ac/Grid/Power',
-        'Z/Aggregate/Pv/Power',
+        'Ac/Consumption/Power',
+        'Ac/Genset/Power',
+        'Ac/Grid/Power',
+        'Pv/Power',
       ]);
     });
 
-    it('all system aggregates have aggregateFrom and forward: true', () => {
-      for (const agg of CUSTOM_AGGREGATE_DEFS.system ?? []) {
+    it('all aggregates have aggregateFrom and forward: true', () => {
+      for (const agg of CUSTOM_ENTITY_DEFS.aggregate) {
         expect(agg.aggregateFrom.length).toBeGreaterThan(0);
         expect((agg as CustomAggregateEntityDef).forward).toBe(true);
       }
     });
 
-    it('Z/Aggregate/Pv/Power combines DC PV and both AC PV sources', () => {
-      const pv = (CUSTOM_AGGREGATE_DEFS.system ?? []).find(
-        (a) => a.path === 'Z/Aggregate/Pv/Power',
+    it('Pv/Power combines DC PV and both AC PV sources', () => {
+      const pv = CUSTOM_ENTITY_DEFS.aggregate.find(
+        (a) => a.path === 'Pv/Power',
       );
       expect(pv).toBeDefined();
       expect(pv!.aggregateFrom).toEqual([
@@ -61,7 +61,7 @@ describe('entityDefs', () => {
     });
 
     it('no longer has Ac/PvOnOutput/AggPower or Ac/PvOnGrid/AggPower', () => {
-      const aggs = CUSTOM_AGGREGATE_DEFS.system ?? [];
+      const aggs = CUSTOM_ENTITY_DEFS.aggregate;
       expect(aggs.find((a) => a.path === 'Ac/PvOnOutput/AggPower')).toBeUndefined();
       expect(aggs.find((a) => a.path === 'Ac/PvOnGrid/AggPower')).toBeUndefined();
     });

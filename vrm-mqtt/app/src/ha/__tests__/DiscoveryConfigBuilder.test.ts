@@ -1,5 +1,5 @@
 import { buildDiscoveryConfigs, matchTemplateIndices } from '../DiscoveryConfigBuilder';
-import { CUSTOM_AGGREGATE_DEFS } from '../entityDefs';
+import { CUSTOM_ENTITY_DEFS } from '../entityDefs';
 import type { DeviceMeta, HaSensorConfig } from '../types';
 
 const ID_SITE = 12345;
@@ -103,33 +103,33 @@ describe('value_template defensiveness', () => {
   });
 });
 
-// ── aggregate sensors (Z/Aggregate/*) ─────────────────────────────────────────
+// ── aggregate sensors (custom/aggregate/*) ───────────────────────────────────
 
 describe('aggregate sensors', () => {
-  describe('Z/Aggregate/Ac/Grid/Power', () => {
+  describe('Ac/Grid/Power', () => {
     it('emits a sensor when at least one L-phase grid power path is observed', () => {
       const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
         'Ac/Grid/L1/Power',
-      ], CUSTOM_AGGREGATE_DEFS.system ?? []);
-      const agg = configs.find(c => c.unique_id === v('system_0_z_aggregate_ac_grid_power'));
+      ], CUSTOM_ENTITY_DEFS.aggregate);
+      const agg = configs.find(c => c.unique_id === v('custom_aggregate_ac_grid_power'));
       expect(agg).toBeDefined();
     });
 
-    it('points state_topic at the aggregate path', () => {
+    it('points state_topic at the custom/aggregate topic', () => {
       const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
         'Ac/Grid/L1/Power',
         'Ac/Grid/L2/Power',
         'Ac/Grid/L3/Power',
-      ], CUSTOM_AGGREGATE_DEFS.system ?? []);
-      const agg = configs.find(c => c.unique_id === v('system_0_z_aggregate_ac_grid_power'));
-      expect(agg?.state_topic).toBe(`vrm/${ID_SITE}/system/0/Z/Aggregate/Ac/Grid/Power`);
+      ], CUSTOM_ENTITY_DEFS.aggregate);
+      const agg = configs.find(c => c.unique_id === v('custom_aggregate_ac_grid_power'));
+      expect(agg?.state_topic).toBe(`vrm/${ID_SITE}/custom/aggregate/Ac/Grid/Power`);
     });
 
     it('inherits the source unit, device_class, and state_class', () => {
       const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
         'Ac/Grid/L1/Power',
-      ], CUSTOM_AGGREGATE_DEFS.system ?? []);
-      const agg = configs.find(c => c.unique_id === v('system_0_z_aggregate_ac_grid_power')) as HaSensorConfig;
+      ], CUSTOM_ENTITY_DEFS.aggregate);
+      const agg = configs.find(c => c.unique_id === v('custom_aggregate_ac_grid_power')) as HaSensorConfig;
       expect(agg?.unit_of_measurement).toBe('W');
       expect(agg?.device_class).toBe('power');
       expect(agg?.state_class).toBe('measurement');
@@ -139,47 +139,47 @@ describe('aggregate sensors', () => {
       const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
         'Dc/Pv/Power',
         'Dc/Battery/Soc',
-      ], CUSTOM_AGGREGATE_DEFS.system ?? []);
-      const agg = configs.find(c => c.unique_id === v('system_0_z_aggregate_ac_grid_power'));
+      ], CUSTOM_ENTITY_DEFS.aggregate);
+      const agg = configs.find(c => c.unique_id === v('custom_aggregate_ac_grid_power'));
       expect(agg).toBeUndefined();
     });
 
     it('uses the standard numeric value_template (bridge publishes the sum)', () => {
       const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
         'Ac/Grid/L1/Power',
-      ], CUSTOM_AGGREGATE_DEFS.system ?? []);
-      const agg = configs.find(c => c.unique_id === v('system_0_z_aggregate_ac_grid_power'));
+      ], CUSTOM_ENTITY_DEFS.aggregate);
+      const agg = configs.find(c => c.unique_id === v('custom_aggregate_ac_grid_power'));
       expect(agg?.value_template).toBe(
         "{% if value_json is defined %}{{ value_json.value | default('Unknown') }}{% else %}Unknown{% endif %}",
       );
     });
   });
 
-  describe('Z/Aggregate/Ac/Consumption/Power', () => {
+  describe('Ac/Consumption/Power', () => {
     it('emits a sensor when at least one L-phase consumption path is observed', () => {
       const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
         'Ac/Consumption/L1/Power',
         'Ac/Consumption/L2/Power',
-      ], CUSTOM_AGGREGATE_DEFS.system ?? []);
-      const agg = configs.find(c => c.unique_id === v('system_0_z_aggregate_ac_consumption_power'));
+      ], CUSTOM_ENTITY_DEFS.aggregate);
+      const agg = configs.find(c => c.unique_id === v('custom_aggregate_ac_consumption_power'));
       expect(agg).toBeDefined();
-      expect(agg?.state_topic).toBe(`vrm/${ID_SITE}/system/0/Z/Aggregate/Ac/Consumption/Power`);
+      expect(agg?.state_topic).toBe(`vrm/${ID_SITE}/custom/aggregate/Ac/Consumption/Power`);
     });
   });
 
-  describe('Z/Aggregate/Ac/Genset/Power', () => {
+  describe('Ac/Genset/Power', () => {
     it('emits a sensor when at least one L-phase genset path is observed', () => {
       const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
         'Ac/Genset/L3/Power',
-      ], CUSTOM_AGGREGATE_DEFS.system ?? []);
-      const agg = configs.find(c => c.unique_id === v('system_0_z_aggregate_ac_genset_power'));
+      ], CUSTOM_ENTITY_DEFS.aggregate);
+      const agg = configs.find(c => c.unique_id === v('custom_aggregate_ac_genset_power'));
       expect(agg).toBeDefined();
-      expect(agg?.state_topic).toBe(`vrm/${ID_SITE}/system/0/Z/Aggregate/Ac/Genset/Power`);
+      expect(agg?.state_topic).toBe(`vrm/${ID_SITE}/custom/aggregate/Ac/Genset/Power`);
     });
   });
 
   it('non-aggregate entity defs (no aggregateFrom) are unaffected by the aggregate branch', () => {
-    const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['Dc/Battery/Soc'], CUSTOM_AGGREGATE_DEFS.system ?? []);
+    const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['Dc/Battery/Soc'], CUSTOM_ENTITY_DEFS.aggregate);
     const soc = configs.find(c => c.unique_id === v('system_0_dc_battery_soc'));
     expect(soc).toBeDefined();
     expect(soc?.state_topic).toBe(`vrm/${ID_SITE}/system/0/Dc/Battery/Soc`);
@@ -190,14 +190,14 @@ describe('aggregate sensors', () => {
 
 describe('forward flag', () => {
   it('emits forward: true normal entities when their path is observed', () => {
-    const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['Dc/Battery/Soc'], CUSTOM_AGGREGATE_DEFS.system ?? []);
+    const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['Dc/Battery/Soc'], CUSTOM_ENTITY_DEFS.aggregate);
     const soc = configs.find(c => c.unique_id === v('system_0_dc_battery_soc'));
     expect(soc).toBeDefined();
   });
 
   it('omits normal entities without forward: true even when observed', () => {
     // Dc/Pv/Power is no longer forward: true.
-    const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['Dc/Pv/Power'], CUSTOM_AGGREGATE_DEFS.system ?? []);
+    const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, ['Dc/Pv/Power'], CUSTOM_ENTITY_DEFS.aggregate);
     const dcPv = configs.find(c => c.unique_id === v('system_0_dc_pv_power'));
     expect(dcPv).toBeUndefined();
   });
@@ -207,7 +207,7 @@ describe('forward flag', () => {
       'Ac/Grid/L1/Power',
       'Ac/Grid/L2/Power',
       'Ac/Grid/L3/Power',
-    ], CUSTOM_AGGREGATE_DEFS.system ?? []);
+    ], CUSTOM_ENTITY_DEFS.aggregate);
     // No individual L{n}/Power configs — only the aggregate.
     const lphase = configs.find(c => c.unique_id === v('system_0_ac_grid_l1_power'));
     expect(lphase).toBeUndefined();
@@ -217,27 +217,27 @@ describe('forward flag', () => {
     expect(lphase3).toBeUndefined();
   });
 
-  it('emits Z/Aggregate/Pv/Power when both DC and AC PV sources are observed', () => {
+  it('emits Pv/Power when both DC and AC PV sources are observed', () => {
     const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
       'Dc/Pv/Power',
       'Ac/PvOnOutput/L1/Power',
       'Ac/PvOnGrid/L1/Power',
-    ], CUSTOM_AGGREGATE_DEFS.system ?? []);
-    const pv = configs.find(c => c.unique_id === v('system_0_z_aggregate_pv_power'));
+    ], CUSTOM_ENTITY_DEFS.aggregate);
+    const pv = configs.find(c => c.unique_id === v('custom_aggregate_pv_power'));
     expect(pv).toBeDefined();
-    expect(pv?.state_topic).toBe(`vrm/${ID_SITE}/system/0/Z/Aggregate/Pv/Power`);
+    expect(pv?.state_topic).toBe(`vrm/${ID_SITE}/custom/aggregate/Pv/Power`);
   });
 
-  it('emits Z/Aggregate/Pv/Power even when only one AC PV source is observed', () => {
+  it('emits Pv/Power even when only one AC PV source is observed', () => {
     const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
       'Dc/Pv/Power',
       'Ac/PvOnOutput/L1/Power',
-    ], CUSTOM_AGGREGATE_DEFS.system ?? []);
-    const pv = configs.find(c => c.unique_id === v('system_0_z_aggregate_pv_power'));
+    ], CUSTOM_ENTITY_DEFS.aggregate);
+    const pv = configs.find(c => c.unique_id === v('custom_aggregate_pv_power'));
     expect(pv).toBeDefined();
   });
 
-  it('emits exactly the expected system/0 entities (3 battery + 4 aggregates)', () => {
+  it('emits exactly the expected entities (3 battery + 4 custom aggregates)', () => {
     const configs = buildDiscoveryConfigs(ID_SITE, 'system', 0, META, [
       'Dc/Battery/Soc',
       'Dc/Battery/Voltage',
@@ -248,16 +248,16 @@ describe('forward flag', () => {
       'Ac/Genset/L1/Power',
       'Ac/PvOnOutput/L1/Power',
       'Ac/PvOnGrid/L1/Power',
-    ], CUSTOM_AGGREGATE_DEFS.system ?? []);
+    ], CUSTOM_ENTITY_DEFS.aggregate);
     const uniqueIds = configs.map(c => c.unique_id).sort();
     expect(uniqueIds).toEqual([
+      v('custom_aggregate_ac_consumption_power'),
+      v('custom_aggregate_ac_genset_power'),
+      v('custom_aggregate_ac_grid_power'),
+      v('custom_aggregate_pv_power'),
       v('system_0_dc_battery_soc'),
       v('system_0_dc_battery_state'),
       v('system_0_dc_battery_voltage'),
-      v('system_0_z_aggregate_ac_consumption_power'),
-      v('system_0_z_aggregate_ac_genset_power'),
-      v('system_0_z_aggregate_ac_grid_power'),
-      v('system_0_z_aggregate_pv_power'),
     ].sort());
   });
 });

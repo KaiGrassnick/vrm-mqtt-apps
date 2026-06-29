@@ -7,7 +7,7 @@ import { HaBrokerClient } from '../ha/HaBrokerClient';
 import { parseVrmTopic, routeFromVrm } from '../ha/MessageRouter';
 import { VrmBrokerPool } from './VrmBrokerPool';
 import { AggregateProcessor, type AggregateRule } from './AggregateProcessor';
-import { SERVICE_ENTITY_DEFS, CUSTOM_AGGREGATE_DEFS } from '../ha/entityDefs';
+import { SERVICE_ENTITY_DEFS, CUSTOM_ENTITY_DEFS } from '../ha/entityDefs';
 import { getObservedPaths } from '../ha/observedPaths';
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
@@ -62,7 +62,7 @@ function computeForwardPaths(): ReadonlySet<string> {
     if (!def.forward) continue;
     for (const p of expand(def.path)) set.add(p);
   }
-  for (const agg of CUSTOM_AGGREGATE_DEFS.system ?? []) {
+  for (const agg of CUSTOM_ENTITY_DEFS.aggregate) {
     if (!agg.forward) continue;
     for (const p of expand(agg.path)) set.add(p);
   }
@@ -94,7 +94,7 @@ export class MqttBridgeConnection {
   private readonly keepaliveTopic: string;
   private readonly aggregator: AggregateProcessor;
   /** Paths the bridge forwards to HA (verbatim VRM message → vrm/{idSite}/...).
-   *  Built once at construction from SERVICE_ENTITY_DEFS + CUSTOM_AGGREGATE_DEFS.
+   *  Built once at construction from SERVICE_ENTITY_DEFS + CUSTOM_ENTITY_DEFS.
    *  Only paths with forward: true end up here. */
   private readonly forwardPaths: ReadonlySet<string>;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -267,7 +267,7 @@ export class MqttBridgeConnection {
   }
 
   /**
-   * Build an AggregateProcessor from CUSTOM_AGGREGATE_DEFS['system'].
+   * Build an AggregateProcessor from CUSTOM_ENTITY_DEFS.aggregate.
    * Only forward: true aggregates are wired up — non-forward aggregates
    * are still subscribed (their sources are in getObservedPaths) but the
    * processor never produces output for them.
@@ -279,12 +279,12 @@ export class MqttBridgeConnection {
    */
   private buildAggregator(): AggregateProcessor {
     const rules: AggregateRule[] = [];
-    for (const def of CUSTOM_AGGREGATE_DEFS.system ?? []) {
+    for (const def of CUSTOM_ENTITY_DEFS.aggregate) {
       if (!def.forward) continue;
       const sourcePaths = expandAggregateSourcePaths(def.aggregateFrom);
       if (sourcePaths.length === 0) continue;
       rules.push({
-        targetTopic: `vrm/${this.installation.idSite}/system/0/${def.path}`,
+        targetTopic: `vrm/${this.installation.idSite}/custom/aggregate/${def.path}`,
         sourcePaths,
       });
     }

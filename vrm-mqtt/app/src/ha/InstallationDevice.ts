@@ -1,5 +1,5 @@
 import { buildDiscoveryConfigs } from './DiscoveryConfigBuilder';
-import { CUSTOM_AGGREGATE_DEFS } from './entityDefs';
+import { CUSTOM_ENTITY_DEFS } from './entityDefs';
 import { getObservedPaths } from './observedPaths';
 import type { HaComponent, HaDeviceDiscoveryComponent, HaDeviceDiscoveryPayload, HaDiscoveryConfig } from './types';
 
@@ -29,7 +29,7 @@ export function buildInstallationDiscovery(
   const configs = buildDiscoveryConfigs(
     idSite, 'system', 0, meta,
     getObservedPaths(),
-    CUSTOM_AGGREGATE_DEFS.system ?? [],
+    CUSTOM_ENTITY_DEFS.aggregate,
   );
 
   return {

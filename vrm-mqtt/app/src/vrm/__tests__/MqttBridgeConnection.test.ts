@@ -618,7 +618,7 @@ describe('MqttBridgeConnection', () => {
     });
   });
 
-  // ── aggregate sensors (L{n}/Power → AggPower) ──────────────────────────────
+  // ── aggregate sensors (L{n}/Power → custom/aggregate) ───────────────────────
 
   describe('aggregate sensors', () => {
     const portalId = installation.brokerPortalId;
@@ -665,7 +665,7 @@ describe('MqttBridgeConnection', () => {
       emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":100}');
       jest.advanceTimersByTime(INTERVAL);
 
-      const aggTopic = `vrm/${idSite}/system/0/Z/Aggregate/Ac/Grid/Power`;
+      const aggTopic = `vrm/${idSite}/custom/aggregate/Ac/Grid/Power`;
       expect(aggregatePayloads(ha, aggTopic)).toEqual([100]);
     });
 
@@ -676,7 +676,7 @@ describe('MqttBridgeConnection', () => {
       emit(client, `N/${portalId}/system/0/Ac/Grid/L3/Power`, '{"value":50}');
       jest.advanceTimersByTime(INTERVAL);
 
-      const aggTopic = `vrm/${idSite}/system/0/Z/Aggregate/Ac/Grid/Power`;
+      const aggTopic = `vrm/${idSite}/custom/aggregate/Ac/Grid/Power`;
       // Bridge publishes the aggregate once per L-phase update.
       // Final value: 100 + 150 + 50 = 300.
       expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(300);
@@ -684,7 +684,7 @@ describe('MqttBridgeConnection', () => {
 
     it('recomputes the aggregate when an already-reported phase updates', () => {
       const { client, ha } = makeActiveConn();
-      const aggTopic = `vrm/${idSite}/system/0/Z/Aggregate/Ac/Grid/Power`;
+      const aggTopic = `vrm/${idSite}/custom/aggregate/Ac/Grid/Power`;
 
       emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":100}');
       emit(client, `N/${portalId}/system/0/Ac/Grid/L2/Power`, '{"value":150}');
@@ -698,7 +698,7 @@ describe('MqttBridgeConnection', () => {
 
     it('handles negative values (e.g. power flowing back to grid)', () => {
       const { client, ha } = makeActiveConn();
-      const aggTopic = `vrm/${idSite}/system/0/Z/Aggregate/Ac/Grid/Power`;
+      const aggTopic = `vrm/${idSite}/custom/aggregate/Ac/Grid/Power`;
 
       emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":100}');
       emit(client, `N/${portalId}/system/0/Ac/Grid/L2/Power`, '{"value":-200}');
@@ -714,7 +714,7 @@ describe('MqttBridgeConnection', () => {
       emit(client, `N/${portalId}/system/0/Ac/Consumption/L2/Power`, '{"value":400}');
       jest.advanceTimersByTime(INTERVAL);
 
-      const aggTopic = `vrm/${idSite}/system/0/Z/Aggregate/Ac/Consumption/Power`;
+      const aggTopic = `vrm/${idSite}/custom/aggregate/Ac/Consumption/Power`;
       expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(700);
     });
 
@@ -725,7 +725,7 @@ describe('MqttBridgeConnection', () => {
       emit(client, `N/${portalId}/system/0/Ac/Genset/L3/Power`, '{"value":2200}');
       jest.advanceTimersByTime(INTERVAL);
 
-      const aggTopic = `vrm/${idSite}/system/0/Z/Aggregate/Ac/Genset/Power`;
+      const aggTopic = `vrm/${idSite}/custom/aggregate/Ac/Genset/Power`;
       expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(6300);
     });
 
@@ -734,7 +734,7 @@ describe('MqttBridgeConnection', () => {
       emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, 'not-json');
       jest.advanceTimersByTime(INTERVAL);
 
-      const aggTopic = `vrm/${idSite}/system/0/Z/Aggregate/Ac/Grid/Power`;
+      const aggTopic = `vrm/${idSite}/custom/aggregate/Ac/Grid/Power`;
       expect(aggregateCalls(ha, aggTopic)).toEqual([]);
     });
 
@@ -743,7 +743,7 @@ describe('MqttBridgeConnection', () => {
       emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":"foo"}');
       jest.advanceTimersByTime(INTERVAL);
 
-      const aggTopic = `vrm/${idSite}/system/0/Z/Aggregate/Ac/Grid/Power`;
+      const aggTopic = `vrm/${idSite}/custom/aggregate/Ac/Grid/Power`;
       expect(aggregateCalls(ha, aggTopic)).toEqual([]);
     });
 
@@ -759,14 +759,14 @@ describe('MqttBridgeConnection', () => {
       );
       // Aggregate IS published.
       expect(ha.publish).toHaveBeenCalledWith(
-        `vrm/${idSite}/system/0/Z/Aggregate/Ac/Grid/Power`,
+        `vrm/${idSite}/custom/aggregate/Ac/Grid/Power`,
         '{"value":100}',
       );
     });
 
     it('clears the aggregate buffer on stop() so a stale value is not retained', async () => {
       const { client, ha, conn } = makeActiveConn();
-      const aggTopic = `vrm/${idSite}/system/0/Z/Aggregate/Ac/Grid/Power`;
+      const aggTopic = `vrm/${idSite}/custom/aggregate/Ac/Grid/Power`;
 
       emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":100}');
       jest.advanceTimersByTime(INTERVAL);
@@ -784,9 +784,9 @@ describe('MqttBridgeConnection', () => {
       expect(clears).toHaveLength(1);
     });
 
-    it('publishes Z/Aggregate/Pv/Power from DC + AC sources', () => {
+    it('publishes Pv/Power from DC + AC sources', () => {
       const { client, ha } = makeActiveConn();
-      const aggTopic = `vrm/${idSite}/system/0/Z/Aggregate/Pv/Power`;
+      const aggTopic = `vrm/${idSite}/custom/aggregate/Pv/Power`;
 
       emit(client, `N/${portalId}/system/0/Dc/Pv/Power`, '{"value":800}');
       emit(client, `N/${portalId}/system/0/Ac/PvOnOutput/L1/Power`, '{"value":100}');
@@ -797,7 +797,7 @@ describe('MqttBridgeConnection', () => {
       expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(950);
     });
 
-    it('Z/Aggregate/Pv/Power does not include Dc/Pv/Power as a forwarded topic', () => {
+    it('Pv/Power does not include Dc/Pv/Power as a forwarded topic', () => {
       // The per-source Dc/Pv/Power has forward: false. The bridge subscribes
       // to it (for the aggregate) but never publishes it to HA.
       const { client, ha } = makeActiveConn();

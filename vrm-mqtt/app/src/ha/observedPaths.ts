@@ -1,4 +1,4 @@
-import { SERVICE_ENTITY_DEFS, CUSTOM_AGGREGATE_DEFS } from './entityDefs';
+import { SERVICE_ENTITY_DEFS, CUSTOM_ENTITY_DEFS } from './entityDefs';
 
 /**
  * L-phase indices that `{n}` expands to when computing VRM-side topic paths.
@@ -37,7 +37,7 @@ function expandAll(templates: readonly string[]): string[] {
  * Sources:
  *   1. Every `path` field from forward: true entities in SERVICE_ENTITY_DEFS
  *      (template-expanded).
- *   2. Every `aggregateFrom` entry from CUSTOM_AGGREGATE_DEFS (template-expanded).
+ *   2. Every `aggregateFrom` entry from CUSTOM_ENTITY_DEFS.aggregate (template-expanded).
  *      Aggregate sources are included regardless of the aggregate's own
  *      `forward` flag — the sources must be subscribed even when the
  *      aggregate is not published.
@@ -48,7 +48,7 @@ function expandAll(templates: readonly string[]): string[] {
  */
 export function getObservedPaths(): string[] {
   const systemEntities = SERVICE_ENTITY_DEFS.system ?? [];
-  const customAggregates = CUSTOM_AGGREGATE_DEFS.system ?? [];
+  const customAggregates = CUSTOM_ENTITY_DEFS.aggregate;
 
   const forwardPaths = new Set<string>();
   for (const def of systemEntities) {

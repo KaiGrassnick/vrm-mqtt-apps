@@ -52,12 +52,12 @@ Entities are published on a stable schema. Example for installation
 - `homeassistant/sensor/vrm-123456/battery_soc/config` → battery state of charge
 - `homeassistant/sensor/vrm-123456/battery_voltage/config` → battery voltage
 - `homeassistant/sensor/vrm-123456/battery_state/config` → battery state
-- `homeassistant/sensor/vrm-123456/z_aggregate_pv_power/config` → PV power (DC + AC combined)
-- `homeassistant/sensor/vrm-123456/z_aggregate_ac_grid_power/config` → grid power (3-phase sum)
+- `homeassistant/sensor/vrm-123456/custom_aggregate_pv_power/config` → PV power (DC + AC combined)
+- `homeassistant/sensor/vrm-123456/custom_aggregate_ac_grid_power/config` → grid power (3-phase sum)
 
 After startup the device panel contains 7 entities per installation:
 3 battery sensors (`Dc/Battery/Soc`, `Dc/Battery/Voltage`, `Dc/Battery/State`)
-and 4 `Z/Aggregate/*` aggregates. Per-phase readings and most other VRM
+and 4 custom aggregates (under `custom/aggregate/`). Per-phase readings and most other VRM
 topics are subscribed internally (to feed the aggregates) but are not
 exposed in HA.
 

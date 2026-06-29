@@ -42,7 +42,7 @@ export interface SensorEntityDef extends EntityDefBase {
 
 /**
  * A derived sensor whose value is the sum of one or more source paths on the
- * VRM bus. Aggregate entities live in `CUSTOM_AGGREGATE_DEFS` (not in the
+ * VRM bus. Aggregate entities live in `CUSTOM_ENTITY_DEFS.aggregate` (not in the
  * normal `SERVICE_ENTITY_DEFS` array) and have their own type so `aggregateFrom`
  * cannot be attached to a regular sensor by accident.
  *
@@ -55,7 +55,7 @@ export interface SensorEntityDef extends EntityDefBase {
  * regardless of their own `forward` flag.
  */
 export interface CustomAggregateEntityDef {
-  /** VRM dbus path the aggregate is published on, e.g. 'Z/Aggregate/Ac/Grid/Power'. */
+  /** VRM dbus path the aggregate is published on, e.g. 'Ac/Grid/Power'. */
   path: string;
   /** Human-readable name shown in Home Assistant. */
   name: string;
@@ -334,27 +334,26 @@ const PLATFORM_ENTITIES: EntityDef[] = [
 // ── Custom aggregates registry ────────────────────────────────────────────────
 
 const CUSTOM_AGGREGATES: CustomAggregateEntityDef[] = [
-  { path: 'Z/Aggregate/Ac/Consumption/Power', name: 'AC Consumption Aggregate Power',
+  { path: 'Ac/Consumption/Power', name: 'AC Consumption Aggregate Power',
     unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
     aggregateFrom: ['Ac/Consumption/L{n}/Power'], forward: true },
-  { path: 'Z/Aggregate/Ac/Grid/Power', name: 'Grid Aggregate Power',
+  { path: 'Ac/Grid/Power', name: 'Grid Aggregate Power',
     unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
     aggregateFrom: ['Ac/Grid/L{n}/Power'], forward: true },
-  { path: 'Z/Aggregate/Ac/Genset/Power', name: 'Generator Aggregate Power',
+  { path: 'Ac/Genset/Power', name: 'Generator Aggregate Power',
     unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
     aggregateFrom: ['Ac/Genset/L{n}/Power'], forward: true },
   // Combined PV total — DC + both AC PV sources.
   // Supersedes the dropped Ac/PvOnOutput/AggPower and Ac/PvOnGrid/AggPower.
-  { path: 'Z/Aggregate/Pv/Power', name: 'PV Aggregate Power',
+  { path: 'Pv/Power', name: 'PV Aggregate Power',
     unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
     aggregateFrom: ['Dc/Pv/Power', 'Ac/PvOnOutput/L{n}/Power', 'Ac/PvOnGrid/L{n}/Power'],
     forward: true },
 ];
 
-export const CUSTOM_AGGREGATE_DEFS: Partial<Record<VrmServiceName,
-  readonly CustomAggregateEntityDef[]>> = {
-  system: CUSTOM_AGGREGATES,
-};
+export const CUSTOM_ENTITY_DEFS = {
+  aggregate: CUSTOM_AGGREGATES,
+} as const;
 
 // ── Service → entity lookup ───────────────────────────────────────────────────
 

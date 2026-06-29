@@ -40,11 +40,14 @@ export function buildDiscoveryConfigs(
   }
 
   // Custom aggregates — same gating as the old aggregate branch.
+  // Emitted under a fixed `custom/aggregate` scope so they sort below
+  // system/0 entries in the device panel and stay distinct from observed
+  // VRM services.
   // Only forward: true aggregates with at least one observed source emit configs.
   for (const agg of customAggregates) {
     if (!agg.forward) continue;
     if (expandAggregateSourcePaths(agg.aggregateFrom, observedPaths).length > 0) {
-      configs.push(entityToConfig(idSite, service, instance, device, agg));
+      configs.push(entityToConfig(idSite, 'custom', 'aggregate', device, agg));
     }
   }
 
@@ -161,7 +164,7 @@ function enumValueTemplate(values: Array<{ value: number; label: string }>): str
 
 function entityToConfig(
   idSite: number,
-  service: VrmServiceName,
+  service: string,
   instance: string | number,
   device: HaDevice,
   def: EntityDef | CustomAggregateEntityDef,

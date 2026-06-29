@@ -15,7 +15,7 @@ describe('getObservedPaths', () => {
   it('expands {n} to 1, 2, 3 for normal-entity path templates', () => {
     const result = getObservedPaths();
     // Ac/Grid/L{n}/Power is the template for the per-phase power entity.
-    // As an aggregate source for Z/Aggregate/Ac/Grid/Power it must be in the set.
+    // As an aggregate source for custom/aggregate/Ac/Grid/Power it must be in the set.
     expect(result).toContain('Ac/Grid/L1/Power');
     expect(result).toContain('Ac/Grid/L2/Power');
     expect(result).toContain('Ac/Grid/L3/Power');
@@ -31,7 +31,7 @@ describe('getObservedPaths', () => {
 
   it('includes literal aggregate sources regardless of the aggregate forward flag', () => {
     const result = getObservedPaths();
-    // Dc/Pv/Power is a literal source for Z/Aggregate/Pv/Power.
+    // Dc/Pv/Power is a literal source for custom/aggregate/Pv/Power.
     expect(result).toContain('Dc/Pv/Power');
   });
 
@@ -43,12 +43,12 @@ describe('getObservedPaths', () => {
     expect(result).not.toContain('Ac/Grid/L3/Current');
   });
 
-  it('includes aggregate targets (forward: true custom aggregates themselves)', () => {
+  it('does NOT include aggregate targets (they are HA-published topics, not bus-side paths)', () => {
     const result = getObservedPaths();
     // The aggregate targets are NOT observed paths on the bus — they are HA-published topics.
     // getObservedPaths returns bus-side paths only.
-    expect(result).not.toContain('Z/Aggregate/Ac/Grid/Power');
-    expect(result).not.toContain('Z/Aggregate/Pv/Power');
+    expect(result).not.toContain('Ac/Grid/Power');
+    expect(result).not.toContain('Pv/Power');
   });
 
   it('does not include non-system-service entities', () => {

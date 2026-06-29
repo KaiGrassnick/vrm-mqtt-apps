@@ -72,16 +72,16 @@ describe('publishInstallation', () => {
     const { pub, ha } = publisher();
     pub.publishInstallation(ID_SITE, NAME);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
-    expect(payload.components['system_0_z_aggregate_ac_grid_power']).toBeDefined();
+    expect(payload.components['custom_aggregate_ac_grid_power']).toBeDefined();
   });
 
   it('includes the remaining custom aggregate components', () => {
     const { pub, ha } = publisher();
     pub.publishInstallation(ID_SITE, NAME);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
-    expect(payload.components['system_0_z_aggregate_ac_consumption_power']).toBeDefined();
-    expect(payload.components['system_0_z_aggregate_ac_genset_power']).toBeDefined();
-    expect(payload.components['system_0_z_aggregate_pv_power']).toBeDefined();
+    expect(payload.components['custom_aggregate_ac_consumption_power']).toBeDefined();
+    expect(payload.components['custom_aggregate_ac_genset_power']).toBeDefined();
+    expect(payload.components['custom_aggregate_pv_power']).toBeDefined();
   });
 
   it('is idempotent: no re-publish when name unchanged', () => {
