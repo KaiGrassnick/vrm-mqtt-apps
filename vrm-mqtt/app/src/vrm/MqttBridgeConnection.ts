@@ -1,7 +1,7 @@
 import type { MqttClient } from 'mqtt';
 import type { VrmInstallation } from './types';
 import { MessageThrottle } from './MessageThrottle';
-import { GlobalMessageThrottle } from './GlobalMessageThrottle';
+import { RollingMessageThrottle } from './RollingMessageThrottle';
 import { DiscoveryPublisher } from '../ha/DiscoveryPublisher';
 import { HaBrokerClient } from '../ha/HaBrokerClient';
 import { routeFromVrm } from '../ha/MessageRouter';
@@ -18,7 +18,7 @@ export interface MqttBridgeConnectionOptions {
   /** Throttle flush interval in ms. 0 = bypass (publish every message directly). Default 500. */
   throttleIntervalMs?: number;
   /** Shared global throttle across all installations. If provided, throttleIntervalMs is ignored. */
-  globalThrottle?: GlobalMessageThrottle;
+  globalThrottle?: RollingMessageThrottle;
 }
 
 export class MqttBridgeConnection {
@@ -27,7 +27,7 @@ export class MqttBridgeConnection {
   private readonly pool: VrmBrokerPool;
   private readonly ha: HaBrokerClient;
   private readonly publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation'>;
-  private readonly throttle: MessageThrottle | GlobalMessageThrottle;
+  private readonly throttle: MessageThrottle | RollingMessageThrottle;
   private readonly subscribeTopics: string[];
   private readonly keepaliveTopic: string;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;

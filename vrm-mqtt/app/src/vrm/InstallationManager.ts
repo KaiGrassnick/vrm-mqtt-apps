@@ -1,6 +1,6 @@
 import { VrmBrokerPool } from './VrmBrokerPool';
 import { MqttBridgeConnection } from './MqttBridgeConnection';
-import { GlobalMessageThrottle } from './GlobalMessageThrottle';
+import { RollingMessageThrottle } from './RollingMessageThrottle';
 import type { VrmInstallation } from './types';
 import type { HaBrokerClient } from '../ha/HaBrokerClient';
 import type { DiscoveryPublisher } from '../ha/DiscoveryPublisher';
@@ -34,7 +34,7 @@ export class InstallationManager {
   private readonly throttleIntervalMs: number;
   private readonly disabledInstallationIds: ReadonlySet<string>;
   private readonly installationStartupDelayMs: number;
-  private readonly globalThrottle: GlobalMessageThrottle;
+  private readonly globalThrottle: RollingMessageThrottle;
   // Starts true so connections are queued until HA's first 'connect' event
   // triggers resume(). Prevents wasted VRM subscriptions when HA is unreachable.
   private suspended = true;
@@ -45,7 +45,7 @@ export class InstallationManager {
     this.throttleIntervalMs = throttleIntervalMs;
     this.disabledInstallationIds = new Set(disabledInstallationIds);
     this.installationStartupDelayMs = installationStartupDelayMs;
-    this.globalThrottle = new GlobalMessageThrottle(throttleIntervalMs, (topic, payload) => ha.publish(topic, payload));
+    this.globalThrottle = new RollingMessageThrottle(throttleIntervalMs, (topic, payload) => ha.publish(topic, payload));
     this.pool = new VrmBrokerPool({
       username: userEmail,
       password: `Token ${apiToken}`,
