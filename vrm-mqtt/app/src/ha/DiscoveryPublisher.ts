@@ -60,7 +60,13 @@ export class DiscoveryPublisher {
       const topic = `homeassistant/device/vrm_${idSite}/config`;
       const retained = await this.ha.collectRetained(topic);
       for (const { topic: t, payload } of retained) {
-        if (payload !== '') this.ha.publish(t, '', true);
+        // Defensive: only clear when the broker returned the EXACT topic we
+        // asked about. Don't trust unrelated topics the broker may surface
+        // (e.g. accidental wildcard expansion, live messages captured during
+        // the 300 ms collectRetained window).
+        if (payload !== '' && t === topic) {
+          this.ha.publish(t, '', true);
+        }
       }
     }
     this.publishAvailability(idSite, false);
@@ -98,16 +104,25 @@ export class DiscoveryPublisher {
    * messages from a previous release. Called on startup / every poll before the
    * first reconcile so that an upgrading user doesn't accumulate dead devices.
    *
-   * Idempotent: a fresh install (no retained legacy messages) is a no-op.
+   * Idempotent: a fresh install (no retained legacy messages) is a no-op, and
+   * subsequent polls are no-ops once the legacy messages have been cleared.
+   *
+   * Safety: the broker may surface topics other than the literal legacy one we
+   * asked about (live messages arriving during the 300 ms collectRetained
+   * window, or accidental MQTT-wildcard expansion if an identifier contains
+   * '+' or '#'). We never clear any topic whose name is not exactly the
+   * legacy pattern we requested.
    */
   async purgeLegacyDiscovery(installations: readonly VrmInstallation[]): Promise<void> {
     for (const inst of installations) {
-      const legacyDiscovery = `homeassistant/device/vrm_${inst.identifier}/config`;
-      const legacyAvailability = `vrm/${inst.identifier}/availability`;
-      for (const topic of [legacyDiscovery, legacyAvailability]) {
+      const legacyTopics = [
+        `homeassistant/device/vrm_${inst.identifier}/config`,
+        `vrm/${inst.identifier}/availability`,
+      ] as const;
+      for (const topic of legacyTopics) {
         const retained = await this.ha.collectRetained(topic);
         for (const { topic: t, payload } of retained) {
-          if (payload !== '') {
+          if (payload !== '' && t === topic) {
             this.ha.publish(t, '', true);
             console.log(`[Discovery] Purged legacy HA topic ${t} (idSite=${inst.idSite})`);
           }

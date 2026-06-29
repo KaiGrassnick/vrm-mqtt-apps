@@ -255,4 +255,29 @@ describe('purgeLegacyDiscovery', () => {
     const calls = (ha.publish as jest.Mock).mock.calls as [string, string][];
     expect(calls.every(([t]) => t !== 'homeassistant/device/vrm_abc/config')).toBe(true);
   });
+
+  it('does not clear topics that do not exactly match the requested legacy pattern', async () => {
+    // Defensive guard: if collectRetained returns a topic whose name is not the
+    // exact legacy pattern we asked about (e.g. accidental MQTT-wildcard
+    // expansion if an identifier contains '+'/'#', or a live message captured
+    // during the 300 ms collectRetained window), we MUST NOT clear it. Otherwise
+    // we would silently delete unrelated retained state on the HA broker.
+    const ha = makeMockHa();
+    ha.collectRetained.mockImplementation(async (pattern: string) => {
+      if (pattern === 'homeassistant/device/vrm_abc/config') {
+        return [
+          { topic: pattern, payload: '{"device":{}}' },
+          { topic: 'vrm/12345/system/0/Dc/Battery/Soc', payload: '{"value":80}' },
+        ];
+      }
+      return [];
+    });
+    const pub = new DiscoveryPublisher(ha as unknown as HaBrokerClient, '1.0.0');
+
+    await pub.purgeLegacyDiscovery([installations[0]]);
+
+    expect(ha.publish).toHaveBeenCalledWith('homeassistant/device/vrm_abc/config', '', true);
+    const calls = (ha.publish as jest.Mock).mock.calls as [string, string, boolean][];
+    expect(calls.some(([t]) => t === 'vrm/12345/system/0/Dc/Battery/Soc')).toBe(false);
+  });
 });
