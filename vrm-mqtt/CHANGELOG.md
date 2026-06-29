@@ -1,4 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.11
+- add pvonoutput
+
 ## 0.1.10
 - remove legacy prune step
 - remove aarch64
