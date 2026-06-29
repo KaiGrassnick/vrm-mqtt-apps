@@ -44,12 +44,12 @@ Bridge every installation record — original or replacement — as its own HA d
 
 ```ts
 export function toBrokerPortalId(identifier: string): string {
-  const stripped = identifier.replace(/ USEDASREPLACEMENT AT \d+\s*$/, '');
+  const stripped = identifier.replace(/\s*-?\s*USEDASREPLACEMENT\s+AT\s+\d+\s*$/, '');
   return stripped.trim();
 }
 ```
 
-For a normal installation `c0619ab417b5`, the regex does not match and `toBrokerPortalId(c0619ab417b5) === c0619ab417b5`. For `c0619ab417b5 - USEDASREPLACEMENT AT 1719937767`, it returns `c0619ab417b5`.
+For a normal installation `c0619ab417b5`, the regex does not match and `toBrokerPortalId(c0619ab417b5) === c0619ab417b5`. For `c0619ab417b5 - USEDASREPLACEMENT AT 1719937767`, the regex consumes the canonical ` - ` separator that VRM emits between `portalId` and the marker, and the function returns `c0619ab417b5`.
 
 This function lives in `src/vrm/portalId.ts` as a free function so it can be unit-tested independently and used wherever needed. `VrmApiClient.getInstallations` calls it once per record when constructing the `VrmInstallation` value.
 
