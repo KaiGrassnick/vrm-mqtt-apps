@@ -216,44 +216,50 @@ describe('InstallationManager', () => {
     });
   });
 
-  describe('replaced installations (USESREPLACEMENT marker in identifier)', () => {
-    function makeReplacedInstallation(idSite: number): VrmInstallation {
+  describe('replaced installations (brokerPortalId derived from identifier)', () => {
+    function makeReplacedInstallation(idSite: number, mqttHost: string): VrmInstallation {
       return {
         idSite,
         name: `Site ${idSite}`,
-        identifier: `test-replaced-portal USEDASREPLACEMENT AT 1700000000`,
-        brokerPortalId: 'test-replaced-portal',
-        mqttHost: 'mqtt5.victronenergy.com',
+        identifier: `c0619ab417b5 - USEDASREPLACEMENT AT 1700000000`,
+        brokerPortalId: 'c0619ab417b5',  // derived via toBrokerPortalId
+        mqttHost,
         mqttWebHost: 'webmqtt5.victronenergy.com',
       };
     }
 
-    it('does not create a connection for a replaced installation', async () => {
-      const manager = new InstallationManager(opts);
-      await manager.reconcile([makeReplacedInstallation(1)]);
-      expect(MockedConn).not.toHaveBeenCalled();
-    });
+    function makeOriginalInstallation(idSite: number, mqttHost: string): VrmInstallation {
+      return {
+        idSite,
+        name: `Site ${idSite}`,
+        identifier: 'c0619ab417b5',
+        brokerPortalId: 'c0619ab417b5',
+        mqttHost,
+        mqttWebHost: 'webmqtt5.victronenergy.com',
+      };
+    }
 
-    it('purges any retained HA discovery for a replaced installation', async () => {
+    it('bridges a USEDASREPLACEMENT installation (does not skip)', async () => {
       const manager = new InstallationManager(opts);
-      await manager.reconcile([makeReplacedInstallation(1)]);
-      expect(mockPublisher.removeInstallation).toHaveBeenCalledWith(1);
-    });
-
-    it('still bridges non-replaced installations when replaced ones are present', async () => {
-      const manager = new InstallationManager(opts);
-      await manager.reconcile([makeInstallation(1), makeReplacedInstallation(2)]);
+      await manager.reconcile([makeReplacedInstallation(99, 'mqtt7.victronenergy.com')]);
       expect(MockedConn).toHaveBeenCalledTimes(1);
-      expect(createdConns[0].identifier).toBe('id1');
     });
 
-    it('treats disabled-or-replaced check independently (both purge, both skip)', async () => {
-      const manager = new InstallationManager({ ...opts, disabledInstallationIds: ['id3'] });
-      await manager.reconcile([makeInstallation(1), makeReplacedInstallation(2), makeInstallation(3)]);
-      // Only id1 should be bridged; id2 (replaced) and id3 (disabled) skipped.
-      expect(MockedConn).toHaveBeenCalledTimes(1);
-      expect(mockPublisher.removeInstallation).toHaveBeenCalledWith(2);
-      expect(mockPublisher.removeInstallation).toHaveBeenCalledWith(3);
+    it('bridges both the original and the replacement (different idSite, different mqttHost, same brokerPortalId)', async () => {
+      const manager = new InstallationManager(opts);
+      await manager.reconcile([
+        makeOriginalInstallation(1, 'mqtt5.victronenergy.com'),
+        makeReplacedInstallation(2, 'mqtt7.victronenergy.com'),
+      ]);
+      expect(MockedConn).toHaveBeenCalledTimes(2);
+    });
+
+    it('publishes the new discovery (idSite-keyed) for a replaced installation', async () => {
+      const manager = new InstallationManager(opts);
+      await manager.reconcile([makeReplacedInstallation(99, 'mqtt7.victronenergy.com')]);
+      // Connections are queued (suspended by default); reconcile just registers them.
+      expect((manager as unknown as { connectionsByIdSite: Map<number, unknown> }).connectionsByIdSite.has(99))
+        .toBe(true);
     });
   });
 

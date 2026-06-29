@@ -6,14 +6,6 @@ import type { HaBrokerClient } from '../ha/HaBrokerClient';
 import type { DiscoveryPublisher } from '../ha/DiscoveryPublisher';
 import { routeFromHa } from '../ha/MessageRouter';
 
-/**
- * Substring that VRM appends to the `identifier` of an installation when it
- * has been created as a replacement for another one (e.g. after migrating the
- * underlying Venus device). Such identifiers contain spaces and other illegal
- * MQTT topic characters — we skip them entirely rather than bridging them.
- */
-const REPLACED_MARKER = 'USEDASREPLACEMENT';
-
 export interface InstallationManagerOptions {
   apiToken: string;
   userEmail: string;
@@ -53,9 +45,8 @@ export class InstallationManager {
   }
 
   async reconcile(installations: VrmInstallation[]): Promise<void> {
-    const isSkipped = (i: VrmInstallation): { skipped: boolean; reason: 'replaced' | 'disabled' | null } => {
+    const isSkipped = (i: VrmInstallation): { skipped: boolean; reason: 'disabled' | null } => {
       if (this.disabledInstallationIds.has(i.identifier)) return { skipped: true, reason: 'disabled' };
-      if (i.identifier.includes(REPLACED_MARKER)) return { skipped: true, reason: 'replaced' };
       return { skipped: false, reason: null };
     };
 
@@ -79,9 +70,9 @@ export class InstallationManager {
       }
     }
 
-    // Skipped installations (disabled or replaced) with no running connection
-    // (e.g. after a restart): clean up any retained HA discovery topics from
-    // the previous session so Home Assistant stops showing them.
+    // Disabled installations with no running connection (e.g. after a restart):
+    // clean up any retained HA discovery topics from the previous session so
+    // Home Assistant stops showing them.
     for (const inst of installations) {
       const { skipped, reason } = isSkipped(inst);
       if (skipped && !this.connections.has(inst.idSite)) {

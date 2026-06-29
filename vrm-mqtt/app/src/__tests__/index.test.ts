@@ -34,12 +34,16 @@ describe('pollInstallations overlapping-guard', () => {
         return JSON.parse(text).records;
       }),
     } as unknown as { getInstallations: jest.Mock };
+    const publisher = {
+      purgeLegacyDiscovery: jest.fn(async () => undefined),
+    } as unknown as { purgeLegacyDiscovery: jest.Mock };
 
     // Kick off first poll (will hang on the fetch).
     const first = pollInstallations(
       client as never,
       manager as never,
       { id: 1, email: 'a@b.c', name: 'x' },
+      publisher as never,
     );
 
     // Wait a microtask so the first poll registers as "in progress".
@@ -50,6 +54,7 @@ describe('pollInstallations overlapping-guard', () => {
       client as never,
       manager as never,
       { id: 1, email: 'a@b.c', name: 'x' },
+      publisher as never,
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);

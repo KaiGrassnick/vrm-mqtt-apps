@@ -16,6 +16,7 @@ export async function pollInstallations(
   client: VrmApiClient,
   manager: InstallationManager,
   user: VrmUser,
+  publisher: DiscoveryPublisher,
 ): Promise<void> {
   if (pollInProgress) {
     console.log('[Main] Poll already in progress, skipping tick');
@@ -26,8 +27,11 @@ export async function pollInstallations(
     const installations: VrmInstallation[] = await client.getInstallations(user.id);
     console.log(`[VRM] Found ${installations.length} installation(s)`);
     for (const inst of installations) {
-      console.log(`[VRM]   - ${inst.name} (${inst.identifier}) @ ${inst.mqttHost}`);
+      console.log(`[VRM]   - ${inst.name} (${inst.identifier} -> brokerPortalId=${inst.brokerPortalId}) @ ${inst.mqttHost}`);
     }
+    // Idempotent: clears any retained legacy identifier-keyed messages from
+    // previous (pre-idSite) versions of the bridge. Fresh installs no-op.
+    await publisher.purgeLegacyDiscovery(installations);
     await manager.reconcile(installations);
   } finally {
     pollInProgress = false;
@@ -103,10 +107,10 @@ async function main(): Promise<void> {
 
   console.log(`[VRM] Starting VRM MQTT Bridge (poll interval: ${config.vrm.pollIntervalMs}ms)`);
 
-  await pollInstallations(client, manager, user).catch(handlePollError);
+  await pollInstallations(client, manager, user, publisher).catch(handlePollError);
 
   pollTimer = setInterval(() => {
-    pollInstallations(client, manager, user).catch(handlePollError);
+    pollInstallations(client, manager, user, publisher).catch(handlePollError);
   }, config.vrm.pollIntervalMs);
 }
 
