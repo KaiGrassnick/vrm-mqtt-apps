@@ -1,5 +1,5 @@
 name: VRM MQTT
-version: "0.1.11"
+version: "0.1.12"
 slug: vrm-mqtt
 description: >-
   Bridges Victron VRM installations to the Home Assistant Mosquitto broker

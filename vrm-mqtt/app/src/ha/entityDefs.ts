@@ -334,21 +334,10 @@ const PLATFORM_ENTITIES: EntityDef[] = [
 // ── Custom aggregates registry ────────────────────────────────────────────────
 
 const CUSTOM_AGGREGATES: CustomAggregateEntityDef[] = [
-  { path: 'Ac/Consumption/Power', name: 'AC Consumption Aggregate Power',
-    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
-    aggregateFrom: ['Ac/Consumption/L{n}/Power'], forward: true },
-  { path: 'Ac/Grid/Power', name: 'Grid Aggregate Power',
-    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
-    aggregateFrom: ['Ac/Grid/L{n}/Power'], forward: true },
-  { path: 'Ac/Genset/Power', name: 'Generator Aggregate Power',
-    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
-    aggregateFrom: ['Ac/Genset/L{n}/Power'], forward: true },
-  // Combined PV total — DC + both AC PV sources.
-  // Supersedes the dropped Ac/PvOnOutput/AggPower and Ac/PvOnGrid/AggPower.
-  { path: 'Pv/Power', name: 'PV Aggregate Power',
-    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
-    aggregateFrom: ['Dc/Pv/Power', 'Ac/PvOnOutput/L{n}/Power', 'Ac/PvOnGrid/L{n}/Power'],
-    forward: true },
+  { path: 'Ac/Consumption/Power', name: 'AC Consumption Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/Consumption/L{n}/Power'], forward: true },
+  { path: 'Ac/Grid/Power', name: 'Grid Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/Grid/L{n}/Power'], forward: true },
+  { path: 'Ac/Genset/Power', name: 'Generator Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Ac/Genset/L{n}/Power'], forward: true },
+  { path: 'Pv/Power', name: 'PV Aggregate Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, aggregateFrom: ['Dc/Pv/Power', 'Ac/PvOnOutput/L{n}/Power', 'Ac/PvOnGrid/L{n}/Power'], forward: true },
 ];
 
 export const CUSTOM_ENTITY_DEFS = {
