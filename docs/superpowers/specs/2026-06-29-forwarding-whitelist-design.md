@@ -55,7 +55,7 @@ accident.
 
 ```ts
 export interface CustomAggregateEntityDef {
-  /** VRM dbus path the aggregate is published on, e.g. 'Ac/Grid/AggPower'. */
+  /** VRM dbus path the aggregate is published on, e.g. 'Z/Aggregate/Ac/Grid/Power'. */
   path: string;
   /** Human-readable name shown in Home Assistant. */
   name: string;
@@ -78,30 +78,26 @@ ride along with normal sensors.
 #### 1c. New `CUSTOM_AGGREGATES` array + `CUSTOM_AGGREGATE_DEFS` registry
 
 Move every existing aggregate out of `SYSTEM_ENTITIES` into a dedicated
-array. The five existing aggregates plus the new combined PV aggregate
-become the first entries.
+array. The path convention `Z/Aggregate/<category>/<sub>/<metric>` keeps
+all derived metrics grouped under one root and sorts them last in discovery
+payloads and device panels.
 
 ```ts
 const CUSTOM_AGGREGATES: CustomAggregateEntityDef[] = [
-  // Existing aggregates, previously in SYSTEM_ENTITIES
-  { path: 'Ac/Consumption/AggPower', name: 'AC Consumption Aggregate Power',
+  // AC aggregates (per-source)
+  { path: 'Z/Aggregate/Ac/Consumption/Power', name: 'AC Consumption Aggregate Power',
     unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
     aggregateFrom: ['Ac/Consumption/L{n}/Power'], forward: true },
-  { path: 'Ac/Grid/AggPower', name: 'Grid Aggregate Power',
+  { path: 'Z/Aggregate/Ac/Grid/Power', name: 'Grid Aggregate Power',
     unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
     aggregateFrom: ['Ac/Grid/L{n}/Power'], forward: true },
-  { path: 'Ac/Genset/AggPower', name: 'Generator Aggregate Power',
+  { path: 'Z/Aggregate/Ac/Genset/Power', name: 'Generator Aggregate Power',
     unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
     aggregateFrom: ['Ac/Genset/L{n}/Power'], forward: true },
-  { path: 'Ac/PvOnOutput/AggPower', name: 'PV On Output Aggregate Power',
-    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
-    aggregateFrom: ['Ac/PvOnOutput/L{n}/Power'], forward: true },
-  { path: 'Ac/PvOnGrid/AggPower', name: 'PV On Grid Aggregate Power',
-    unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
-    aggregateFrom: ['Ac/PvOnGrid/L{n}/Power'], forward: true },
 
-  // New combined PV total — DC + both AC PV sources
-  { path: 'ZPv/AggPower', name: 'PV Aggregate Power',
+  // Combined PV total — DC + both AC PV sources. Supersedes the old
+  // Ac/PvOnOutput/AggPower and Ac/PvOnGrid/AggPower, which are dropped.
+  { path: 'Z/Aggregate/Pv/Power', name: 'PV Aggregate Power',
     unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1,
     aggregateFrom: ['Dc/Pv/Power', 'Ac/PvOnOutput/L{n}/Power', 'Ac/PvOnGrid/L{n}/Power'],
     forward: true },
@@ -113,8 +109,11 @@ export const CUSTOM_AGGREGATE_DEFS: Partial<Record<VrmServiceName,
 };
 ```
 
-The `Z` prefix on `ZPv/AggPower` sorts this entity last in discovery payloads
-and device panels, matching the convention for derived/total metrics.
+The two old `Ac/PvOnOutput/AggPower` and `Ac/PvOnGrid/AggPower` aggregates
+are removed entirely — their sources feed into the combined
+`Z/Aggregate/Pv/Power`, so per-source breakdown is no longer surfaced in
+HA. The underlying VRM subscriptions stay so the combined aggregate has all
+its inputs.
 
 #### 1d. `SYSTEM_ENTITIES` changes
 
@@ -168,17 +167,15 @@ index is used by system/0 entities, so this is sufficient.
 After this change the resulting topic set is unchanged in cardinality (9
 topics) but is derived rather than hardcoded:
 
-- `Dc/Pv/Power` — aggregate source for `ZPv/AggPower`
+- `Dc/Pv/Power` — aggregate source for `Z/Aggregate/Pv/Power`
 - `Dc/Battery/Soc` — forward (normal entity)
 - `Dc/Battery/Voltage` — forward (normal entity)
 - `Dc/Battery/State` — forward (normal entity)
-- `Ac/Grid/+/Power` — aggregate source for `Ac/Grid/AggPower`
-- `Ac/Consumption/+/Power` — aggregate source for `Ac/Consumption/AggPower`
-- `Ac/Genset/+/Power` — aggregate source for `Ac/Genset/AggPower`
-- `Ac/PvOnGrid/+/Power` — aggregate sources for both `Ac/PvOnGrid/AggPower`
-  and `ZPv/AggPower`
-- `Ac/PvOnOutput/+/Power` — aggregate sources for both
-  `Ac/PvOnOutput/AggPower` and `ZPv/AggPower`
+- `Ac/Grid/+/Power` — aggregate source for `Z/Aggregate/Ac/Grid/Power`
+- `Ac/Consumption/+/Power` — aggregate source for `Z/Aggregate/Ac/Consumption/Power`
+- `Ac/Genset/+/Power` — aggregate source for `Z/Aggregate/Ac/Genset/Power`
+- `Ac/PvOnGrid/+/Power` — aggregate source for `Z/Aggregate/Pv/Power`
+- `Ac/PvOnOutput/+/Power` — aggregate source for `Z/Aggregate/Pv/Power`
 
 If someone later adds a new forward: true entity or a new custom aggregate
 with a literal source path, the subscription list updates automatically.
@@ -270,24 +267,25 @@ the entity defs by hand.
 
 ### 6. Behavioural impact
 
-**HA device panel after the change** contains 9 system/0 entities (was 19):
+**HA device panel after the change** contains 7 system/0 entities (was 19):
 
 - 3 battery sensors (`Dc/Battery/Soc`, `Dc/Battery/Voltage`, `Dc/Battery/State`)
-- 5 existing power aggregates (`Ac/Consumption/AggPower`, `Ac/Grid/AggPower`,
-  `Ac/Genset/AggPower`, `Ac/PvOnOutput/AggPower`, `Ac/PvOnGrid/AggPower`)
-- 1 new combined PV aggregate (`ZPv/AggPower`)
+- 3 AC aggregates (`Z/Aggregate/Ac/Consumption/Power`,
+  `Z/Aggregate/Ac/Grid/Power`, `Z/Aggregate/Ac/Genset/Power`)
+- 1 new combined PV aggregate (`Z/Aggregate/Pv/Power`)
 
-The previous `Dc/Pv/Power` entity is no longer present in HA — its sole
-purpose now is feeding the new combined aggregate.
+The previous `Dc/Pv/Power` entity and the two `Ac/PvOn*/AggPower`
+aggregates are no longer present in HA — their sole purpose now is feeding
+the new combined aggregate.
 
 **VRM broker subscription** is the same 9 wildcarded topics as today.
 Bandwidth and CPU on the VRM side are unaffected.
 
 **Aggregate correctness:**
-- `ZPv/AggPower` sums observed sources. Single-phase installs report
-  `Dc/Pv/Power + (one AC PV phase)`. Three-phase installs report the full sum.
-  This matches the existing observed-sources semantics used by every other
-  `aggregateFrom` rule — no special-casing required.
+- `Z/Aggregate/Pv/Power` sums observed sources. Single-phase installs
+  report `Dc/Pv/Power + (one AC PV phase)`. Three-phase installs report
+  the full sum. This matches the existing observed-sources semantics used
+  by every other `aggregateFrom` rule — no special-casing required.
 - Negative contributions are passed through unchanged. If a future VRM
   firmware reports `Ac/PvOnGrid/L{n}/Power` as negative for export, the
   aggregate reflects it.
@@ -314,7 +312,7 @@ Bandwidth and CPU on the VRM side are unaffected.
   - forward:false custom aggregate not emitted
 - `vrm-mqtt/app/src/vrm/__tests__/MqttBridgeConnection.test.ts` aggregate
   section (lines 621+) — add a test that verifies a literal source
-  (`Dc/Pv/Power`) feeds `ZPv/AggPower` and that the aggregate sums DC + AC
+  (`Dc/Pv/Power`) feeds `Z/Aggregate/Pv/Power` and that the aggregate sums DC + AC
   contributions.
 
 **New tests:**
@@ -333,8 +331,8 @@ Bandwidth and CPU on the VRM side are unaffected.
 ### 8. Documentation
 
 - `vrm-mqtt/DOCS.md:57` — the discovery example mentions `pv_power`. Update
-  the example to `pv_aggregate_power` (or whatever slug `ZPv/AggPower`
-  produces) and add a one-line note that operators can add new entries to
+  the example to `z_aggregate_pv_power` (the slug for `Z/Aggregate/Pv/Power`)
+  and add a one-line note that operators can add new entries to
   `SYSTEM_ENTITIES` (forward: true) or `CUSTOM_AGGREGATES` to extend the
   bridge.
 - No change needed to the per-topic mapping reference (it still covers the
