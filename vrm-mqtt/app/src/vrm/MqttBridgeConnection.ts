@@ -7,35 +7,66 @@ import { HaBrokerClient } from '../ha/HaBrokerClient';
 import { parseVrmTopic, routeFromVrm } from '../ha/MessageRouter';
 import { VrmBrokerPool } from './VrmBrokerPool';
 import { AggregateProcessor, type AggregateRule } from './AggregateProcessor';
-import { SERVICE_ENTITY_DEFS, type SensorEntityDef } from '../ha/entityDefs';
+import { SERVICE_ENTITY_DEFS, CUSTOM_AGGREGATE_DEFS } from '../ha/entityDefs';
+import { getObservedPaths } from '../ha/observedPaths';
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
 const SUPPRESS_REPUBLISH = JSON.stringify({ 'keepalive-options': ['suppress-republish'] });
 
-/**
- * L-phase indices the bridge pre-expands in `aggregateFrom` templates.
- * Three-phase systems are the common case; the processor's observed-sources
- * set then narrows the sum to whichever phases actually report.
- */
-const POSSIBLE_PHASE_INDICES = ['1', '2', '3'];
+const POSSIBLE_PHASE_INDICES = ['1', '2', '3'] as const;
 
 /**
- * Resolve an `aggregateFrom` template list into concrete source paths using
- * the standard L1/L2/L3 indices. Templates containing `{n}` are expanded for
- * every possible phase; literal templates are kept as-is.
+ * Expand a list of aggregate source templates. Templates containing `{n}`
+ * are expanded to indices 1, 2, 3; literal templates are kept as-is.
+ * Result is sorted and deduplicated.
+ *
+ * Used at aggregator-build time. Differs from
+ * DiscoveryConfigBuilder.expandAggregateSourcePaths in that this helper does
+ * NOT filter by observed paths — at startup we wire up every possible source
+ * so the aggregator is ready the moment a phase comes online.
  */
-function expandAggregateSourcePaths(def: SensorEntityDef): string[] {
+function expandAggregateSourcePaths(templates: readonly string[]): string[] {
   const expanded = new Set<string>();
-  for (const template of def.aggregateFrom ?? []) {
-    if (template.includes('{n}')) {
+  for (const t of templates) {
+    if (t.includes('{n}')) {
       for (const n of POSSIBLE_PHASE_INDICES) {
-        expanded.add(template.replace('{n}', n));
+        expanded.add(t.replace('{n}', n));
       }
     } else {
-      expanded.add(template);
+      expanded.add(t);
     }
   }
   return [...expanded].sort();
+}
+
+/**
+ * Build the set of paths that the bridge forwards to HA. A path is forwarded
+ * if and only if:
+ *   - it is the `path` of a forward: true normal entity (template-expanded
+ *     to L-phase indices), OR
+ *   - it is the `path` of a forward: true custom aggregate (template-expanded
+ *     the same way).
+ *
+ * Note: this is the set of HA-side topics we publish on, derived from entity
+ * `path`s. It is NOT the same as `getObservedPaths()` — that returns the
+ * VRM-side topics we subscribe to (which also includes aggregate sources).
+ */
+function computeForwardPaths(): ReadonlySet<string> {
+  const indices = ['1', '2', '3'] as const;
+  const expand = (template: string): string[] =>
+    template.includes('{n}')
+      ? indices.map((n) => template.replace('{n}', n))
+      : [template];
+  const set = new Set<string>();
+  for (const def of SERVICE_ENTITY_DEFS.system ?? []) {
+    if (!def.forward) continue;
+    for (const p of expand(def.path)) set.add(p);
+  }
+  for (const agg of CUSTOM_AGGREGATE_DEFS.system ?? []) {
+    if (!agg.forward) continue;
+    for (const p of expand(agg.path)) set.add(p);
+  }
+  return set;
 }
 
 export interface MqttBridgeConnectionOptions {
@@ -62,6 +93,10 @@ export class MqttBridgeConnection {
   private readonly subscribeTopics: string[];
   private readonly keepaliveTopic: string;
   private readonly aggregator: AggregateProcessor;
+  /** Paths the bridge forwards to HA (verbatim VRM message → vrm/{idSite}/...).
+   *  Built once at construction from SERVICE_ENTITY_DEFS + CUSTOM_AGGREGATE_DEFS.
+   *  Only paths with forward: true end up here. */
+  private readonly forwardPaths: ReadonlySet<string>;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private isFirstKeepalive = true;
   /** HA-side topics this connection has forwarded; cleared on stop() so the broker
@@ -85,6 +120,7 @@ export class MqttBridgeConnection {
     this.throttle = globalThrottle ?? new MessageThrottle(throttleIntervalMs, (topic, payload): void => ha.publish(topic, payload));
     this.getIdSite = getIdSite ?? ((): undefined => undefined);
     this.aggregator = this.buildAggregator();
+    this.forwardPaths = computeForwardPaths();
 
     this.boundHandleConnect = (): void => { this.handleConnect(); };
     this.boundHandleMessage = (topic, payload): void => { this.handleMessage(topic, payload); };
@@ -148,17 +184,7 @@ export class MqttBridgeConnection {
 
   private buildSubscribeTopics(): string[] {
     const id = this.installation.brokerPortalId;
-    return [
-      `N/${id}/system/0/Dc/Pv/Power`,
-      `N/${id}/system/0/Dc/Battery/Soc`,
-      `N/${id}/system/0/Dc/Battery/Voltage`,
-      `N/${id}/system/0/Dc/Battery/State`,
-      `N/${id}/system/0/Ac/Grid/+/Power`,
-      `N/${id}/system/0/Ac/Consumption/+/Power`,
-      `N/${id}/system/0/Ac/Genset/+/Power`,
-      `N/${id}/system/0/Ac/PvOnGrid/+/Power`,
-      `N/${id}/system/0/Ac/PvOnOutput/+/Power`,
-    ];
+    return getObservedPaths().map((path) => `N/${id}/system/0/${path}`);
   }
 
   private handleConnect(): void {
@@ -220,35 +246,42 @@ export class MqttBridgeConnection {
     if (!topic.startsWith(`N/${this.installation.brokerPortalId}/`)) return;
 
     const str = payload.toString();
-    for (const msg of routeFromVrm(topic, str, this.getIdSite)) {
-      this.publishedStateTopics.add(msg.topic);
-      this.throttle.enqueue(msg.topic, msg.payload);
+    const parsed = parseVrmTopic(topic);
+    if (!parsed) return;
+
+    // Aggregate feed — always run for every parsed topic. The aggregator
+    // no-ops on untracked paths.
+    for (const agg of this.aggregator.feedPayload(parsed.path, str)) {
+      this.publishedStateTopics.add(agg.topic);
+      this.throttle.enqueue(agg.topic, agg.payload);
     }
 
-    // Feed the value to the aggregate processor; any updated aggregates are
-    // enqueued through the same throttle. The parse-then-feed is done in
-    // feedPayload which is a no-op for untracked paths and unparseable values.
-    const parsed = parseVrmTopic(topic);
-    if (parsed) {
-      for (const agg of this.aggregator.feedPayload(parsed.path, str)) {
-        this.publishedStateTopics.add(agg.topic);
-        this.throttle.enqueue(agg.topic, agg.payload);
+    // HA forward — only for forward: true entities.
+    if (this.forwardPaths.has(parsed.path)) {
+      const out = routeFromVrm(topic, str, this.getIdSite);
+      for (const msg of out) {
+        this.publishedStateTopics.add(msg.topic);
+        this.throttle.enqueue(msg.topic, msg.payload);
       }
     }
   }
 
   /**
-   * Build an AggregateProcessor from the system/0 entity defs. Each def with
-   * `aggregateFrom` becomes one rule. Source-path templates are pre-expanded
-   * with the standard L1/L2/L3 indices; the processor's observed-sources set
-   * then narrows the sum to whichever phases actually report.
+   * Build an AggregateProcessor from CUSTOM_AGGREGATE_DEFS['system'].
+   * Only forward: true aggregates are wired up — non-forward aggregates
+   * are still subscribed (their sources are in getObservedPaths) but the
+   * processor never produces output for them.
+   *
+   * Source-path templates are expanded using the same L-phase indices
+   * that getObservedPaths() uses for subscription. Literal templates are
+   * kept as-is. The processor's observed-sources set then narrows the sum
+   * to whichever phases actually report on this installation.
    */
   private buildAggregator(): AggregateProcessor {
-    const defs = SERVICE_ENTITY_DEFS['system'] ?? [];
     const rules: AggregateRule[] = [];
-    for (const def of defs) {
-      if (def.component !== 'sensor' || !def.aggregateFrom) continue;
-      const sourcePaths = expandAggregateSourcePaths(def as SensorEntityDef);
+    for (const def of CUSTOM_AGGREGATE_DEFS.system ?? []) {
+      if (!def.forward) continue;
+      const sourcePaths = expandAggregateSourcePaths(def.aggregateFrom);
       if (sourcePaths.length === 0) continue;
       rules.push({
         targetTopic: `vrm/${this.installation.idSite}/system/0/${def.path}`,
