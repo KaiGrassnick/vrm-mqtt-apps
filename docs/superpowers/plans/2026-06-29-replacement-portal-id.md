@@ -68,33 +68,33 @@ import { toBrokerPortalId } from '../portalId';
 
 describe('toBrokerPortalId', () => {
   it('returns the identifier unchanged when no replacement marker is present', () => {
-    expect(toBrokerPortalId('c0619ab417b5')).toBe('c0619ab417b5');
+    expect(toBrokerPortalId('samplePortalId')).toBe('samplePortalId');
   });
 
   it('strips a " - USEDASREPLACEMENT AT <digits>" suffix', () => {
-    expect(toBrokerPortalId('c0619ab417b5 - USEDASREPLACEMENT AT 1719937767'))
-      .toBe('c0619ab417b5');
+    expect(toBrokerPortalId('samplePortalId - USEDASREPLACEMENT AT 1234567890'))
+      .toBe('samplePortalId');
   });
 
   it('strips the suffix even when surrounded by variable whitespace', () => {
-    expect(toBrokerPortalId('c0619ab417b5   USEDASREPLACEMENT   AT   1719937767'))
-      .toBe('c0619ab417b5');
+    expect(toBrokerPortalId('samplePortalId   USEDASREPLACEMENT   AT   1234567890'))
+      .toBe('samplePortalId');
   });
 
   it('accepts any digit run as the timestamp (defensive)', () => {
-    expect(toBrokerPortalId('c0619ab417b5 USEDASREPLACEMENT AT 1')).toBe('c0619ab417b5');
-    expect(toBrokerPortalId('c0619ab417b5 USEDASREPLACEMENT AT 99999999999'))
-      .toBe('c0619ab417b5');
+    expect(toBrokerPortalId('samplePortalId USEDASREPLACEMENT AT 1')).toBe('samplePortalId');
+    expect(toBrokerPortalId('samplePortalId USEDASREPLACEMENT AT 99999999999'))
+      .toBe('samplePortalId');
   });
 
   it('does not match "USEDASREPLACEMENT" without the trailing "AT <digits>"', () => {
     // Tokens without a digit run must be left alone — defends against partial matches.
-    expect(toBrokerPortalId('c0619ab417b5 USEDASREPLACEMENT')).toBe('c0619ab417b5 USEDASREPLACEMENT');
+    expect(toBrokerPortalId('samplePortalId USEDASREPLACEMENT')).toBe('samplePortalId USEDASREPLACEMENT');
   });
 
   it('matches the marker case-sensitively', () => {
-    expect(toBrokerPortalId('c0619ab417b5 usedasreplacement at 1719937767'))
-      .toBe('c0619ab417b5 usedasreplacement at 1719937767');
+    expect(toBrokerPortalId('samplePortalId usedasreplacement at 1234567890'))
+      .toBe('samplePortalId usedasreplacement at 1234567890');
   });
 
   it('returns "" for an empty input', () => {
@@ -102,8 +102,8 @@ describe('toBrokerPortalId', () => {
   });
 
   it('trims trailing whitespace after stripping the marker', () => {
-    // 'c0619ab417b5  USEDASREPLACEMENT AT 17  ' → strips the marker, trims whitespace.
-    expect(toBrokerPortalId('c0619ab417b5  USEDASREPLACEMENT AT 17  ')).toBe('c0619ab417b5');
+    // 'samplePortalId  USEDASREPLACEMENT AT 17  ' → strips the marker, trims whitespace.
+    expect(toBrokerPortalId('samplePortalId  USEDASREPLACEMENT AT 17  ')).toBe('samplePortalId');
   });
 });
 ```
@@ -202,7 +202,7 @@ describe('getInstallations derivation', () => {
   it('returns brokerPortalId equal to identifier when no marker is present', async () => {
     fetchMock.mockResolvedValueOnce(makeResponse({
       records: [{
-        idSite: 1, name: 'Site', identifier: 'c0619ab417b5',
+        idSite: 1, name: 'Site', identifier: 'samplePortalId',
         mqtt_host: 'mqtt5.example', mqtt_webhost: 'webmqtt5.example',
       }],
       success: true,
@@ -211,15 +211,15 @@ describe('getInstallations derivation', () => {
     const installations = await client.getInstallations(42);
 
     expect(installations).toHaveLength(1);
-    expect(installations[0].brokerPortalId).toBe('c0619ab417b5');
-    expect(installations[0].identifier).toBe('c0619ab417b5');
+    expect(installations[0].brokerPortalId).toBe('samplePortalId');
+    expect(installations[0].identifier).toBe('samplePortalId');
   });
 
   it('strips the USEDASREPLACEMENT suffix from brokerPortalId', async () => {
     fetchMock.mockResolvedValueOnce(makeResponse({
       records: [{
         idSite: 2, name: 'Replaced',
-        identifier: 'c0619ab417b5 - USEDASREPLACEMENT AT 1719937767',
+        identifier: 'samplePortalId - USEDASREPLACEMENT AT 1234567890',
         mqtt_host: 'mqtt7.example', mqtt_webhost: 'webmqtt7.example',
       }],
       success: true,
@@ -228,8 +228,8 @@ describe('getInstallations derivation', () => {
     const installations = await client.getInstallations(42);
 
     expect(installations).toHaveLength(1);
-    expect(installations[0].identifier).toBe('c0619ab417b5 - USEDASREPLACEMENT AT 1719937767');
-    expect(installations[0].brokerPortalId).toBe('c0619ab417b5');
+    expect(installations[0].identifier).toBe('samplePortalId - USEDASREPLACEMENT AT 1234567890');
+    expect(installations[0].brokerPortalId).toBe('samplePortalId');
   });
 });
 ```
@@ -242,7 +242,7 @@ Run:
 ```bash
 cd vrm-mqtt/app && npx jest src/vrm/__tests__/VrmApiClient.test.ts -t "derivation"
 ```
-Expected: FAIL — `expected installations[0].brokerPortalId` to equal `'c0619ab417b5'` but got `undefined`.
+Expected: FAIL — `expected installations[0].brokerPortalId` to equal `'samplePortalId'` but got `undefined`.
 
 - [ ] **Step 5: Implement derivation in `VrmApiClient.getInstallations`**
 
@@ -389,8 +389,8 @@ describe('replaced installation (USEDASREPLACEMENT in identifier)', () => {
   const replacedInstallation: VrmInstallation = {
     idSite: 2,
     name: 'Replaced Site',
-    identifier: 'c0619ab417b5 - USEDASREPLACEMENT AT 1719937767',
-    brokerPortalId: 'c0619ab417b5',  // the broker keeps the base — derivation result
+    identifier: 'samplePortalId - USEDASREPLACEMENT AT 1234567890',
+    brokerPortalId: 'samplePortalId',  // the broker keeps the base — derivation result
     mqttHost: 'mqtt7.victronenergy.com',
     mqttWebHost: 'webmqtt7.victronenergy.com',
   };
@@ -775,7 +775,7 @@ Add a new `describe('purgeLegacyDiscovery')` block at the bottom:
 describe('purgeLegacyDiscovery', () => {
   const installations: VrmInstallation[] = [
     { idSite: 1, name: 'A', identifier: 'abc', brokerPortalId: 'abc', mqttHost: 'h', mqttWebHost: 'h' },
-    { idSite: 2, name: 'B', identifier: 'c0619ab417b5 - USEDASREPLACEMENT AT 1719937767', brokerPortalId: 'c0619ab417b5', mqttHost: 'h', mqttWebHost: 'h' },
+    { idSite: 2, name: 'B', identifier: 'samplePortalId - USEDASREPLACEMENT AT 1234567890', brokerPortalId: 'samplePortalId', mqttHost: 'h', mqttWebHost: 'h' },
   ];
 
   it('publishes empty retained for each non-empty legacy payload it finds', async () => {
@@ -1025,8 +1025,8 @@ In `vrm-mqtt/app/src/vrm/__tests__/InstallationManager.test.ts`:
         { ...makeInstallation(1, 'mqtt5.victronenergy.com') },
         {
           ...makeInstallation(2, 'mqtt7.victronenergy.com'),
-          identifier: 'c0619ab417b5 - USEDASREPLACEMENT AT 1719937767',
-          brokerPortalId: 'c0619ab417b5',
+          identifier: 'samplePortalId - USEDASREPLACEMENT AT 1234567890',
+          brokerPortalId: 'samplePortalId',
         },
       ]);
 
@@ -1034,7 +1034,7 @@ In `vrm-mqtt/app/src/vrm/__tests__/InstallationManager.test.ts`:
       // HA sends vrm/{idSite=2}/.../set — must reach conn2 (not conn1).
       m.routeHaCommand('vrm/2/vebus/256/Mode/set', 'On');
       expect(conn2.publishToVrm).toHaveBeenCalledTimes(1);
-      expect(conn2.publishToVrm.mock.calls[0][0]).toBe('W/c0619ab417b5/vebus/256/Mode');
+      expect(conn2.publishToVrm.mock.calls[0][0]).toBe('W/samplePortalId/vebus/256/Mode');
     });
 
     it('warns and drops when parts[1] is not a numeric idSite', () => {
@@ -1154,8 +1154,8 @@ describe('replaced installations (brokerPortalId derived from identifier)', () =
     return {
       idSite,
       name: `Site ${idSite}`,
-      identifier: `c0619ab417b5 - USEDASREPLACEMENT AT 1700000000`,
-      brokerPortalId: 'c0619ab417b5',  // derived via toBrokerPortalId
+      identifier: `samplePortalId - USEDASREPLACEMENT AT 1700000000`,
+      brokerPortalId: 'samplePortalId',  // derived via toBrokerPortalId
       mqttHost,
       mqttWebHost: 'webmqtt5.victronenergy.com',
     };
@@ -1165,8 +1165,8 @@ describe('replaced installations (brokerPortalId derived from identifier)', () =
     return {
       idSite,
       name: `Site ${idSite}`,
-      identifier: 'c0619ab417b5',
-      brokerPortalId: 'c0619ab417b5',
+      identifier: 'samplePortalId',
+      brokerPortalId: 'samplePortalId',
       mqttHost,
       mqttWebHost: 'webmqtt5.victronenergy.com',
     };

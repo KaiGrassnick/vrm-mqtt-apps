@@ -8,12 +8,12 @@
 
 VRM creates a "replacement" installation record when an installation is migrated (for example, the underlying Venus device changes). The replacement record's `identifier` is suffixed with the marker `USEDASREPLACEMENT AT <unix-timestamp>`:
 
-- `c0619ab417b5`                             — original record
-- `c0619ab417b5 - USEDASREPLACEMENT AT 1719937767` — replacement record
+- `samplePortalId`                             — original record
+- `samplePortalId - USEDASREPLACEMENT AT 1234567890` — replacement record
 
 Those suffixes contain spaces and other characters that are illegal in MQTT topics. Today, the bridge filters out any installation whose identifier contains the substring `USEDASREPLACEMENT` (`src/vrm/InstallationManager.ts:15,58`), which is safe from a topic-validity standpoint but drops active installations the user wants to see in Home Assistant.
 
-The user wants to keep these records bridged. The complication: the original and the replacement are **distinct physical devices on distinct VRM brokers** (different `mqttHost`) whose `brokerPortalId` on the broker side happens to coincide (`c0619ab417b5`). On our local HA broker we therefore cannot use `c0619ab417b5` as the topic segment for the replacement: it would collide with the original installation's HA topic, duplicate HA entity identifiers, and break discovery.
+The user wants to keep these records bridged. The complication: the original and the replacement are **distinct physical devices on distinct VRM brokers** (different `mqttHost`) whose `brokerPortalId` on the broker side happens to coincide (`samplePortalId`). On our local HA broker we therefore cannot use `samplePortalId` as the topic segment for the replacement: it would collide with the original installation's HA topic, duplicate HA entity identifiers, and break discovery.
 
 The user also wants write-back (`HA → VRM`) to keep working in the future, which requires the bridge to know the mapping from an HA topic back to the correct VRM connection and broker portalId.
 
@@ -49,7 +49,7 @@ export function toBrokerPortalId(identifier: string): string {
 }
 ```
 
-For a normal installation `c0619ab417b5`, the regex does not match and `toBrokerPortalId(c0619ab417b5) === c0619ab417b5`. For `c0619ab417b5 - USEDASREPLACEMENT AT 1719937767`, the regex consumes the canonical ` - ` separator that VRM emits between `portalId` and the marker, and the function returns `c0619ab417b5`.
+For a normal installation `samplePortalId`, the regex does not match and `toBrokerPortalId(samplePortalId) === samplePortalId`. For `samplePortalId - USEDASREPLACEMENT AT 1234567890`, the regex consumes the canonical ` - ` separator that VRM emits between `portalId` and the marker, and the function returns `samplePortalId`.
 
 This function lives in `src/vrm/portalId.ts` as a free function so it can be unit-tested independently and used wherever needed. `VrmApiClient.getInstallations` calls it once per record when constructing the `VrmInstallation` value.
 
@@ -196,7 +196,7 @@ async purgeLegacyDiscovery(installations: readonly VrmInstallation[]): Promise<v
 
 ### Concern: same `brokerPortalId`, different `mqttHost`
 
-Original record and replacement record both produce `brokerPortalId = c0619ab417b5`, but they live on different `mqttHost` values. Consequence: two distinct `VrmBrokerPool` clients, two distinct `MqttBridgeConnection`s, each independently subscribing to its own broker. No deduplication of messages, no coordination — they just look like two installations with two distinct HA devices and (different) state values in HA. The conflict in the HA-side topic space (where the user observed the bad topic) is fully resolved by switching the HA-side key from the colliding string to `idSite`.
+Original record and replacement record both produce `brokerPortalId = samplePortalId`, but they live on different `mqttHost` values. Consequence: two distinct `VrmBrokerPool` clients, two distinct `MqttBridgeConnection`s, each independently subscribing to its own broker. No deduplication of messages, no coordination — they just look like two installations with two distinct HA devices and (different) state values in HA. The conflict in the HA-side topic space (where the user observed the bad topic) is fully resolved by switching the HA-side key from the colliding string to `idSite`.
 
 ### Error handling
 

@@ -140,7 +140,7 @@ describe('VrmApiClient', () => {
             {
               idSite: 1,
               name: 'Site',
-              identifier: 'c0619ab417b5',
+              identifier: 'samplePortalId',
               mqtt_host: 'mqtt5.example',
               mqtt_webhost: 'webmqtt5.example',
             },
@@ -152,8 +152,8 @@ describe('VrmApiClient', () => {
       const installations = await client.getInstallations(42);
 
       expect(installations).toHaveLength(1);
-      expect(installations[0].identifier).toBe('c0619ab417b5');
-      expect(installations[0].brokerPortalId).toBe('c0619ab417b5');
+      expect(installations[0].identifier).toBe('samplePortalId');
+      expect(installations[0].brokerPortalId).toBe('samplePortalId');
     });
 
     it('strips the USEDASREPLACEMENT suffix from brokerPortalId', async () => {
@@ -163,7 +163,7 @@ describe('VrmApiClient', () => {
             {
               idSite: 2,
               name: 'Replaced',
-              identifier: 'c0619ab417b5 - USEDASREPLACEMENT AT 1719937767',
+              identifier: 'samplePortalId - USEDASREPLACEMENT AT 1234567890',
               mqtt_host: 'mqtt7.example',
               mqtt_webhost: 'webmqtt7.example',
             },
@@ -175,8 +175,8 @@ describe('VrmApiClient', () => {
       const installations = await client.getInstallations(42);
 
       expect(installations).toHaveLength(1);
-      expect(installations[0].identifier).toBe('c0619ab417b5 - USEDASREPLACEMENT AT 1719937767');
-      expect(installations[0].brokerPortalId).toBe('c0619ab417b5');
+      expect(installations[0].identifier).toBe('samplePortalId - USEDASREPLACEMENT AT 1234567890');
+      expect(installations[0].brokerPortalId).toBe('samplePortalId');
     });
 
     it('drops records whose brokerPortalId derivation is empty and warns', async () => {
@@ -193,7 +193,7 @@ describe('VrmApiClient', () => {
             {
               idSite: 100,
               name: 'Good',
-              identifier: 'c0619ab417b5',
+              identifier: 'samplePortalId',
               mqtt_host: 'mqtt.example',
               mqtt_webhost: 'webmqtt.example',
             },

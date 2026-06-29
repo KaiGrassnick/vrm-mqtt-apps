@@ -464,8 +464,8 @@ describe('MqttBridgeConnection', () => {
     const replacedInstallation: VrmInstallation = {
       idSite: 2,
       name: 'Replaced Site',
-      identifier: 'c0619ab417b5 - USEDASREPLACEMENT AT 1719937767',
-      brokerPortalId: 'c0619ab417b5',
+      identifier: 'samplePortalId - USEDASREPLACEMENT AT 1234567890',
+      brokerPortalId: 'samplePortalId',
       mqttHost: 'mqtt7.victronenergy.com',
       mqttWebHost: 'webmqtt7.victronenergy.com',
     };

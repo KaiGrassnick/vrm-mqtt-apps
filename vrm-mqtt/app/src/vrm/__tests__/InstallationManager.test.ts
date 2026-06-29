@@ -221,8 +221,8 @@ describe('InstallationManager', () => {
       return {
         idSite,
         name: `Site ${idSite}`,
-        identifier: `c0619ab417b5 - USEDASREPLACEMENT AT 1700000000`,
-        brokerPortalId: 'c0619ab417b5',  // derived via toBrokerPortalId
+        identifier: `samplePortalId - USEDASREPLACEMENT AT 1700000000`,
+        brokerPortalId: 'samplePortalId',  // derived via toBrokerPortalId
         mqttHost,
         mqttWebHost: 'webmqtt5.victronenergy.com',
       };
@@ -232,8 +232,8 @@ describe('InstallationManager', () => {
       return {
         idSite,
         name: `Site ${idSite}`,
-        identifier: 'c0619ab417b5',
-        brokerPortalId: 'c0619ab417b5',
+        identifier: 'samplePortalId',
+        brokerPortalId: 'samplePortalId',
         mqttHost,
         mqttWebHost: 'webmqtt5.victronenergy.com',
       };
@@ -368,8 +368,8 @@ describe('InstallationManager', () => {
       // and idSites but a shared brokerPortalId.
       const m = new InstallationManager(opts);
       await m.reconcile([
-        { ...makeInstallation(1, 'mqtt5.victronenergy.com'), brokerPortalId: 'c0619ab417b5' },
-        { ...makeInstallation(2, 'mqtt7.victronenergy.com'), brokerPortalId: 'c0619ab417b5' },
+        { ...makeInstallation(1, 'mqtt5.victronenergy.com'), brokerPortalId: 'samplePortalId' },
+        { ...makeInstallation(2, 'mqtt7.victronenergy.com'), brokerPortalId: 'samplePortalId' },
       ]);
 
       // createdConns[0..1] belong to the outer `manager`; m's reconcile pushed
@@ -378,7 +378,7 @@ describe('InstallationManager', () => {
       // HA sends vrm/{idSite=2}/.../set — must reach conn2 (not conn1).
       m.routeHaCommand('vrm/2/vebus/256/Mode/set', 'On');
       expect(conn2.publishToVrm).toHaveBeenCalledTimes(1);
-      expect(conn2.publishToVrm.mock.calls[0][0]).toBe('W/c0619ab417b5/vebus/256/Mode');
+      expect(conn2.publishToVrm.mock.calls[0][0]).toBe('W/samplePortalId/vebus/256/Mode');
     });
 
     it('warns and drops when parts[1] is not a numeric idSite', () => {

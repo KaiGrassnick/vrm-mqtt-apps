@@ -219,7 +219,7 @@ describe('onHaBirth', () => {
 describe('purgeLegacyDiscovery', () => {
   const installations: VrmInstallation[] = [
     { idSite: 1, name: 'A', identifier: 'abc', brokerPortalId: 'abc', mqttHost: 'h', mqttWebHost: 'h' },
-    { idSite: 2, name: 'B', identifier: 'c0619ab417b5 - USEDASREPLACEMENT AT 1719937767', brokerPortalId: 'c0619ab417b5', mqttHost: 'h', mqttWebHost: 'h' },
+    { idSite: 2, name: 'B', identifier: 'samplePortalId - USEDASREPLACEMENT AT 1234567890', brokerPortalId: 'samplePortalId', mqttHost: 'h', mqttWebHost: 'h' },
   ];
 
   it('publishes empty retained directly to each legacy topic (no broker subscription)', async () => {
@@ -229,12 +229,12 @@ describe('purgeLegacyDiscovery', () => {
     expect(ha.publish).toHaveBeenCalledWith('homeassistant/device/vrm_abc/config', '', true);
     expect(ha.publish).toHaveBeenCalledWith('vrm/abc/availability', '', true);
     expect(ha.publish).toHaveBeenCalledWith(
-      'homeassistant/device/vrm_c0619ab417b5 - USEDASREPLACEMENT AT 1719937767/config',
+      'homeassistant/device/vrm_samplePortalId - USEDASREPLACEMENT AT 1234567890/config',
       '',
       true,
     );
     expect(ha.publish).toHaveBeenCalledWith(
-      'vrm/c0619ab417b5 - USEDASREPLACEMENT AT 1719937767/availability',
+      'vrm/samplePortalId - USEDASREPLACEMENT AT 1234567890/availability',
       '',
       true,
     );
