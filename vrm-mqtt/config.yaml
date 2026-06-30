@@ -1,5 +1,5 @@
 name: VRM MQTT
-version: "0.1.13"
+version: "0.1.14"
 slug: vrm-mqtt
 description: >-
   Bridges Victron VRM installations to the Home Assistant Mosquitto broker
@@ -27,6 +27,7 @@ options:
   vrm_disabled_installation_ids: ""
   vrm_installation_startup_delay_ms: 500
   vrm_throttle_interval_ms: 500
+  vrm_offline_timeout_ms: 300000
   ha_mqtt_host: "core-mosquitto"
   ha_mqtt_port: 1883
   ha_mqtt_username: ""
@@ -38,6 +39,7 @@ schema:
   vrm_disabled_installation_ids: "str?"
   vrm_installation_startup_delay_ms: "int(0,60000)?"
   vrm_throttle_interval_ms: "int(0,60000)?"
+  vrm_offline_timeout_ms: "int(0,86400000)?"
   ha_mqtt_host: "str?"
   ha_mqtt_port: "port?"
   ha_mqtt_username: "str?"
