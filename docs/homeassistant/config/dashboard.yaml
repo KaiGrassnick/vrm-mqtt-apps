@@ -12,7 +12,7 @@ views:
             sort_by: installations.name+
             display_footer: true
             columns:
-              - name: 'Status'
+              - name: Status
                 data: installations.online
                 align: center
                 modify: "x ? '🟢' : '🔴'"
@@ -63,8 +63,8 @@ views:
               table: "display: grid;"
               thead, tbody, tfoot: "display: contents;"
               tr: >-
-                display: grid; grid-template-columns: 0.3fr 2fr 1fr 1fr 1fr 1fr 1fr
-                1fr 1fr;
+                display: grid; grid-template-columns: 0.3fr 2fr 1fr 1fr 1fr 1fr
+                1fr 1fr 1fr;
               thead tr: "order: 1; margin-bottom: 4px;"
               tbody tr: "order: 3;"
               tfoot tr: >-
@@ -74,10 +74,34 @@ views:
         column_span: 4
     badges:
       - type: entity
-        show_name: false
+        show_name: true
         show_state: true
         show_icon: true
         entity: sensor.vrm_installations_status
+        name: Installations
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: sensor.vrm_installations_online
+        name: Online
+        icon: mdi:access-point
+        color: green
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: sensor.vrm_installations_offline
+        name: Offline
+        icon: mdi:alert-rhombus
+        color: red
+        show_entity_picture: false
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: sensor.vrm_installations_total
+        name: Total
       - type: entity
         show_name: false
         show_state: true
