@@ -51,7 +51,7 @@
       state_class: measurement
       icon: mdi:battery-medium
       state: >-
-        {% set ns = namespace(soc_values = states | selectattr('entity_id', 'match', '^sensor\.vrm_.+_system_0_dc_battery_soc$') | map(attribute='state') | map('float', 0) | list) %}
+        {% set ns = namespace(soc_values = states | selectattr('entity_id', 'match', '^sensor\.vrm_.+_system_0_dc_battery_soc$') | map(attribute='state') | map('float', 0) | reject('equalto', 0) | list) %}
         {% if ns.soc_values | count > 0 %}
           {{ (ns.soc_values | sum / (ns.soc_values | count)) | round(0) }}
         {% else %}
@@ -65,7 +65,7 @@
       state_class: measurement
       icon: mdi:car-battery
       state: >-
-        {% set ns = namespace(voltages = states | selectattr('entity_id', 'match', '^sensor\.vrm_.+_system_0_dc_battery_voltage$') | map(attribute='state') | map('float', 0) | list) %}
+        {% set ns = namespace(voltages = states | selectattr('entity_id', 'match', '^sensor\.vrm_.+_system_0_dc_battery_voltage$') | map(attribute='state') | map('float', 0) | reject('equalto', 0) | list) %}
         {% if ns.voltages | count > 0 %}
           {{ (ns.voltages | sum / (ns.voltages | count)) | round(2) }}
         {% else %}
