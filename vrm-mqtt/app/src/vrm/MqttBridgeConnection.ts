@@ -275,11 +275,14 @@ export class MqttBridgeConnection {
     const parsed = parseVrmTopic(topic);
     if (!parsed) return;
 
+    let haPublished = false;
+
     // Aggregate feed — always run for every parsed topic. The aggregator
     // no-ops on untracked paths.
     for (const agg of this.aggregator.feedPayload(parsed.path, str)) {
       this.publishedStateTopics.add(agg.topic);
       this.throttle.enqueue(agg.topic, agg.payload);
+      haPublished = true;
     }
 
     // HA forward — only for forward: true entities.
@@ -288,10 +291,11 @@ export class MqttBridgeConnection {
       for (const msg of out) {
         this.publishedStateTopics.add(msg.topic);
         this.throttle.enqueue(msg.topic, msg.payload);
+        haPublished = true;
       }
     }
 
-    this.touch();
+    if (haPublished) this.touch();
   }
 
   /**
