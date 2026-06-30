@@ -12,6 +12,10 @@ views:
             sort_by: installations.name+
             display_footer: true
             columns:
+              - name: ''
+                data: installations.online
+                align: center
+                modify: "x ? '🟢' : '🔴'"
               - name: Installation
                 data: installations.name
                 align: left
