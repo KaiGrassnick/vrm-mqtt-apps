@@ -142,6 +142,15 @@ export class InstallationManager {
     }
   }
 
+  /** Re-publish each connection's actual current availability. Called after an
+   *  HA birth event so a broker reconnect doesn't blindly mark every installation
+   *  online regardless of whether its VRM connection is genuinely stale. */
+  republishAvailability(): void {
+    for (const conn of this.connections.values()) {
+      conn.republishAvailability();
+    }
+  }
+
   async suspend(): Promise<void> {
     if (this.suspended) return;
     this.suspended = true;

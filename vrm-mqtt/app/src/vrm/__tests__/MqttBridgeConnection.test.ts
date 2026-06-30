@@ -548,6 +548,25 @@ describe('MqttBridgeConnection', () => {
       // Second staleness window elapsed: timer fires again.
       expect(offlineCallsAfterFire).toHaveLength(2);
     });
+
+    it('republishAvailability() re-publishes offline when stale (HA birth must not override a genuinely offline installation)', () => {
+      const { publisher, conn } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      jest.advanceTimersByTime(TIMEOUT + 1);
+      expect(publisher.publishAvailability).toHaveBeenLastCalledWith(idSite, false);
+
+      (publisher.publishAvailability as jest.Mock).mockClear();
+      conn.republishAvailability();
+      expect(publisher.publishAvailability).toHaveBeenCalledWith(idSite, false);
+    });
+
+    it('republishAvailability() re-publishes online when not stale', () => {
+      const { client, publisher, conn } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      emitForwarded(client);
+
+      (publisher.publishAvailability as jest.Mock).mockClear();
+      conn.republishAvailability();
+      expect(publisher.publishAvailability).toHaveBeenCalledWith(idSite, true);
+    });
   });
 
   describe('throttle behaviour', () => {

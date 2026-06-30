@@ -200,7 +200,7 @@ describe('onHaBirth', () => {
     expect(discoveryRepublishes.every(([, , retained]) => retained === true)).toBe(true);
   });
 
-  it('re-publishes availability online for each installation', () => {
+  it('does NOT touch availability — real online/offline state belongs to MqttBridgeConnection staleness tracking', () => {
     const { pub, ha } = publisher();
     pub.publishInstallation(ID_SITE, NAME);
     pub.publishInstallation(999, 'Other Site');
@@ -209,8 +209,7 @@ describe('onHaBirth', () => {
     pub.onHaBirth();
 
     const calls = (ha.publish as jest.Mock).mock.calls as [string, string][];
-    expect(calls.some(([t, p]) => t === `vrm/${ID_SITE}/availability` && p === 'online')).toBe(true);
-    expect(calls.some(([t, p]) => t === 'vrm/999/availability' && p === 'online')).toBe(true);
+    expect(calls.some(([t]) => t.endsWith('/availability'))).toBe(false);
   });
 
   it('does nothing when nothing has been published yet', () => {

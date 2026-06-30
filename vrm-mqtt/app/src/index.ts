@@ -83,6 +83,7 @@ async function main(): Promise<void> {
   ha.onBirth = (): void => {
     console.log('[HA] Birth message received — re-publishing discovery configs');
     publisher.onHaBirth();
+    manager.republishAvailability();
   };
   ha.onCommand = (topic, payload): void => { manager.routeHaCommand(topic, payload); };
 

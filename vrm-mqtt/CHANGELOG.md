@@ -1,4 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.16
+- fix bug which did set installation back to online on rebirth
+
 ## 0.1.15
 - fix bug which did not set installations back online after beeing marked as stale
 - start with installations offline and set to online only after we got a message

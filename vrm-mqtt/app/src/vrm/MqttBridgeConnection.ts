@@ -262,6 +262,13 @@ export class MqttBridgeConnection {
     }
   }
 
+  /** Re-publish availability reflecting our actual current state (not blindly
+   *  online). Called after an HA birth event — a broker reconnect must not
+   *  override a connection that is genuinely stale. */
+  republishAvailability(): void {
+    this.publisher.publishAvailability(this.installation.idSite, !this.isStale);
+  }
+
   publishToVrm(topic: string, payload: string): void {
     // No client means start() was never called — drop the command silently.
     if (!this.client) return;
