@@ -4,9 +4,9 @@ env:
   MONITORED_FILES: "config.json config.yaml config.yml Dockerfile rootfs"
 
 on:
-  pull_request:
-    branches:
-      - main
+#  pull_request:
+#    branches:
+#      - main
   push:
     branches:
       - main
