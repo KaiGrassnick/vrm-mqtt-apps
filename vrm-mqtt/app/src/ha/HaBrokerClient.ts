@@ -1,4 +1,5 @@
 import mqtt, { type MqttClient } from 'mqtt';
+import { logger } from '../logger';
 
 export interface HaBrokerClientOptions {
   host: string;
@@ -50,9 +51,9 @@ export class HaBrokerClient {
       // These are transient (once), not a leak — suppress the false-positive warning.
       const stream = (this.client as unknown as { stream?: { setMaxListeners(n: number): void } }).stream;
       stream?.setMaxListeners(0);
-      console.log('[HA] Connected to HA MQTT broker');
+      logger.info('[HA] Connected to HA MQTT broker');
       this.client!.subscribe(['homeassistant/status', 'vrm/#'], { qos: 0 }, (err) => {
-        if (err) console.error('[HA] Subscribe error:', err.message);
+        if (err) logger.error('[HA] Subscribe error:', err.message);
       });
       this.onConnect?.();
     });
@@ -69,26 +70,26 @@ export class HaBrokerClient {
     });
 
     this.client.on('error', (err) => {
-      console.error('[HA] Broker error:', err.message);
+      logger.error('[HA] Broker error:', err.message);
     });
 
     this.client.on('reconnect', () => {
-      console.log('[HA] Reconnecting to HA MQTT broker...');
+      logger.info('[HA] Reconnecting to HA MQTT broker...');
     });
 
     this.client.on('offline', () => {
-      console.log('[HA] HA MQTT broker offline');
+      logger.info('[HA] HA MQTT broker offline');
       this.onOffline?.();
     });
   }
 
   publish(topic: string, payload: string, retained = true): void {
     if (!this.client?.connected) {
-      console.warn(`[HA] Not connected — dropping publish to ${topic}`);
+      logger.warn(`[HA] Not connected — dropping publish to ${topic}`);
       return;
     }
     this.client.publish(topic, payload, { retain: retained, qos: 0 }, (err) => {
-      if (err) console.error(`[HA] Publish error on ${topic}:`, err.message);
+      if (err) logger.error(`[HA] Publish error on ${topic}:`, err.message);
     });
   }
 
@@ -119,7 +120,7 @@ export class HaBrokerClient {
 
       this.client!.subscribe(pattern, { qos: 0 }, (err) => {
         if (err) {
-          console.error('[HA] collectRetained subscribe failed:', err.message);
+          logger.error('[HA] collectRetained subscribe failed:', err.message);
           finish();
         }
       });

@@ -127,6 +127,37 @@ describe('RollingMessageThrottle', () => {
     expect(publish).toHaveBeenLastCalledWith('vrm/c', '3');
   });
 
+  // ── removeShard() ─────────────────────────────────────────────────────────
+
+  it('removeShard is a no-op for an unknown key', () => {
+    throttle.start();
+    expect(() => throttle.removeShard('nonexistent')).not.toThrow();
+    throttle.enqueue('vrm/a', '1');
+    jest.advanceTimersByTime(500);
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('removeShard deletes the shard entirely, so a torn-down installation stops counting toward tick cadence', () => {
+    throttle.start();
+    throttle.enqueue('vrm/a', '1');
+    throttle.enqueue('vrm/b', '2');
+    jest.advanceTimersByTime(500); // N=2, tickMs=250 — both drain.
+    expect(publish).toHaveBeenCalledTimes(2);
+
+    // Simulate MqttBridgeConnection.stop() tearing down installation 'a'.
+    throttle.removeShard('a');
+    throttle.enqueue('vrm/b', '3');
+
+    // Without the fix, the empty 'a' entry would still count toward N at the
+    // next reschedule (tickMs stays 250, and the dead shard wastes the first
+    // tick), so 'b' would not land until 500ms later. With the fix, N
+    // collapses to 1 (tickMs=500) and 'b' lands on the single pending tick,
+    // which was already armed for +250ms before removeShard ran.
+    jest.advanceTimersByTime(300);
+    expect(publish).toHaveBeenCalledTimes(3);
+    expect(publish).toHaveBeenLastCalledWith('vrm/b', '3');
+  });
+
   it('floors tickMs at 1ms for very large fleets (per-installation latency grows linearly)', () => {
     // 1000 installations, intervalMs=500. Without the floor, tickMs would be 0.
     // With the floor, tickMs=1 and a full cycle takes 1000ms.

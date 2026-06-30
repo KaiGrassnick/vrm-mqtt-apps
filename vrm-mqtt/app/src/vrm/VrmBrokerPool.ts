@@ -1,5 +1,6 @@
 import * as mqtt from 'mqtt';
 import type { MqttClient } from 'mqtt';
+import { logger } from '../logger';
 
 export interface VrmBrokerPoolOptions {
   username: string;
@@ -34,17 +35,24 @@ export class VrmBrokerPool {
       rejectUnauthorized: false,
     });
 
+    // VRM shards many installations across a small number of broker hostnames,
+    // so this client is shared: every MqttBridgeConnection on the same host
+    // attaches its own set of listeners to it. Node's default cap of 10 is
+    // easily exceeded once more than ~2 installations share a host — raise it
+    // so that's not mistaken for a leak (same pattern as HaBrokerClient).
+    client.setMaxListeners(0);
+
     client.on('connect', () => {
-      console.log(`[Broker] Connected to ${host}`);
+      logger.info(`[Broker] Connected to ${host}`);
     });
     client.on('error', (err: Error) => {
-      console.error(`[Broker] Error on ${host}: ${err.message}`);
+      logger.error(`[Broker] Error on ${host}: ${err.message}`);
     });
     client.on('reconnect', () => {
-      console.log(`[Broker] Reconnecting to ${host}...`);
+      logger.info(`[Broker] Reconnecting to ${host}...`);
     });
     client.on('offline', () => {
-      console.log(`[Broker] ${host} went offline`);
+      logger.info(`[Broker] ${host} went offline`);
     });
 
     this.clients.set(host, client);

@@ -112,4 +112,36 @@ describe('loadConfig', () => {
     const { loadConfig } = reloadConfig();
     expect(() => loadConfig()).toThrow(/VRM_OFFLINE_TIMEOUT_MS.*integer/);
   });
+
+  describe('HA_MQTT_PORT range validation', () => {
+    it('accepts the minimum valid port (1)', () => {
+      process.env = { ...ORIGINAL_ENV, VRM_API_TOKEN: 'tok', HA_MQTT_PORT: '1' };
+      const { loadConfig } = reloadConfig();
+      expect(loadConfig().mqtt.port).toBe(1);
+    });
+
+    it('accepts the maximum valid port (65535)', () => {
+      process.env = { ...ORIGINAL_ENV, VRM_API_TOKEN: 'tok', HA_MQTT_PORT: '65535' };
+      const { loadConfig } = reloadConfig();
+      expect(loadConfig().mqtt.port).toBe(65535);
+    });
+
+    it('throws on port 0', () => {
+      process.env = { ...ORIGINAL_ENV, VRM_API_TOKEN: 'tok', HA_MQTT_PORT: '0' };
+      const { loadConfig } = reloadConfig();
+      expect(() => loadConfig()).toThrow(/HA_MQTT_PORT.*valid port/);
+    });
+
+    it('throws on a negative port', () => {
+      process.env = { ...ORIGINAL_ENV, VRM_API_TOKEN: 'tok', HA_MQTT_PORT: '-1' };
+      const { loadConfig } = reloadConfig();
+      expect(() => loadConfig()).toThrow(/HA_MQTT_PORT.*valid port/);
+    });
+
+    it('throws on a port above 65535', () => {
+      process.env = { ...ORIGINAL_ENV, VRM_API_TOKEN: 'tok', HA_MQTT_PORT: '65536' };
+      const { loadConfig } = reloadConfig();
+      expect(() => loadConfig()).toThrow(/HA_MQTT_PORT.*valid port/);
+    });
+  });
 });

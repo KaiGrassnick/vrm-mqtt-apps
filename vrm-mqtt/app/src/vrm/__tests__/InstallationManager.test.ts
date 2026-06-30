@@ -36,7 +36,7 @@ describe('InstallationManager', () => {
   };
 
   let mockPoolInstance: jest.Mocked<VrmBrokerPool>;
-  let createdConns: Array<{ start: jest.Mock; stop: jest.Mock; updateName: jest.Mock; identifier: string }>;
+  let createdConns: Array<{ start: jest.Mock; stop: jest.Mock; updateName: jest.Mock; republishAvailability: jest.Mock; identifier: string }>;
   let _connCounter: number;
 
   beforeEach(() => {
@@ -58,11 +58,12 @@ describe('InstallationManager', () => {
         stop: jest.fn().mockResolvedValue(undefined),
         updateName: jest.fn(),
         publishToVrm: jest.fn(),
+        republishAvailability: jest.fn(),
         identifier: inst.identifier,
         idSite: inst.idSite,
         brokerPortalId: inst.brokerPortalId,
       } as unknown as MqttBridgeConnection;
-      createdConns.push(conn as unknown as { start: jest.Mock; stop: jest.Mock; updateName: jest.Mock; identifier: string });
+      createdConns.push(conn as unknown as { start: jest.Mock; stop: jest.Mock; updateName: jest.Mock; republishAvailability: jest.Mock; identifier: string });
       _connCounter++;
       return conn;
     });
@@ -180,6 +181,23 @@ describe('InstallationManager', () => {
       await manager.reconcile([makeInstallation(1)]);
       const arg = MockedConn.mock.calls[0][0] as { offlineTimeoutMs?: number };
       expect(arg.offlineTimeoutMs).toBe(300_000);
+    });
+  });
+
+  describe('republishAvailability', () => {
+    it('calls republishAvailability on every connection (does not force online)', async () => {
+      const manager = new InstallationManager(opts);
+      await manager.reconcile([makeInstallation(1), makeInstallation(2)]);
+
+      manager.republishAvailability();
+
+      expect(createdConns[0].republishAvailability).toHaveBeenCalledTimes(1);
+      expect(createdConns[1].republishAvailability).toHaveBeenCalledTimes(1);
+    });
+
+    it('is a no-op when there are no connections', () => {
+      const manager = new InstallationManager(opts);
+      expect(() => manager.republishAvailability()).not.toThrow();
     });
   });
 

@@ -167,6 +167,94 @@ describe('AggregateProcessor.clear', () => {
   });
 });
 
+// ── AggregateProcessor — source expiry ────────────────────────────────────────
+
+describe('AggregateProcessor source expiry', () => {
+  const gridRule = {
+    targetTopic: 'vrm/42/system/0/Ac/Grid/AggPower',
+    sourcePaths: ['Ac/Grid/L1/Power', 'Ac/Grid/L2/Power', 'Ac/Grid/L3/Power'],
+  };
+  const EXPIRY = 1000;
+
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('drops a source from the sum once it has not reported for longer than sourceExpiryMs', () => {
+    const proc = new AggregateProcessor([gridRule], EXPIRY);
+    proc.feedPayload('Ac/Grid/L1/Power', '{"value":100}');
+    proc.feedPayload('Ac/Grid/L2/Power', '{"value":150}');
+    proc.feedPayload('Ac/Grid/L3/Power', '{"value":50}');
+
+    // L2/L3 go quiet (e.g. reconfigured to single-phase) but the connection
+    // never drops, so clear() never runs. Only L1 keeps reporting.
+    jest.advanceTimersByTime(EXPIRY + 1);
+    const messages = proc.feedPayload('Ac/Grid/L1/Power', '{"value":120}');
+
+    // Without expiry this would be 120+150+50=320 — the stale L2/L3 values
+    // forever inflating the sum. With expiry, only the live L1 counts.
+    expect(messages).toEqual([
+      { topic: 'vrm/42/system/0/Ac/Grid/AggPower', payload: '{"value":120}' },
+    ]);
+  });
+
+  it('keeps a source in the sum if it reports again before expiring', () => {
+    const proc = new AggregateProcessor([gridRule], EXPIRY);
+    proc.feedPayload('Ac/Grid/L1/Power', '{"value":100}');
+    proc.feedPayload('Ac/Grid/L2/Power', '{"value":150}');
+
+    jest.advanceTimersByTime(EXPIRY - 1);
+    proc.feedPayload('Ac/Grid/L2/Power', '{"value":160}'); // refreshes L2's timer
+
+    jest.advanceTimersByTime(EXPIRY - 1);
+    const messages = proc.feedPayload('Ac/Grid/L1/Power', '{"value":110}');
+
+    expect(messages).toEqual([
+      { topic: 'vrm/42/system/0/Ac/Grid/AggPower', payload: '{"value":270}' },
+    ]);
+  });
+
+  it('re-includes a source once it reports again after expiring', () => {
+    const proc = new AggregateProcessor([gridRule], EXPIRY);
+    proc.feedPayload('Ac/Grid/L1/Power', '{"value":100}');
+    proc.feedPayload('Ac/Grid/L2/Power', '{"value":150}');
+
+    jest.advanceTimersByTime(EXPIRY + 1); // L2 expires
+    proc.feedPayload('Ac/Grid/L1/Power', '{"value":100}');
+
+    const messages = proc.feedPayload('Ac/Grid/L2/Power', '{"value":200}'); // L2 reports again
+
+    expect(messages).toEqual([
+      { topic: 'vrm/42/system/0/Ac/Grid/AggPower', payload: '{"value":300}' },
+    ]);
+  });
+
+  it('sourceExpiryMs=0 disables expiry — a quiet source stays in the sum forever', () => {
+    const proc = new AggregateProcessor([gridRule], 0);
+    proc.feedPayload('Ac/Grid/L1/Power', '{"value":100}');
+    proc.feedPayload('Ac/Grid/L2/Power', '{"value":150}');
+
+    jest.advanceTimersByTime(10 * 365 * 24 * 60 * 60 * 1000); // 10 years
+    const messages = proc.feedPayload('Ac/Grid/L1/Power', '{"value":120}');
+
+    expect(messages).toEqual([
+      { topic: 'vrm/42/system/0/Ac/Grid/AggPower', payload: '{"value":270}' },
+    ]);
+  });
+
+  it('defaults to a 300_000ms expiry when not specified', () => {
+    const proc = new AggregateProcessor([gridRule]);
+    proc.feedPayload('Ac/Grid/L1/Power', '{"value":100}');
+    proc.feedPayload('Ac/Grid/L2/Power', '{"value":150}');
+
+    jest.advanceTimersByTime(300_001);
+    const messages = proc.feedPayload('Ac/Grid/L1/Power', '{"value":120}');
+
+    expect(messages).toEqual([
+      { topic: 'vrm/42/system/0/Ac/Grid/AggPower', payload: '{"value":120}' },
+    ]);
+  });
+});
+
 // ── AggregateProcessor — multiple rules ───────────────────────────────────────
 
 describe('AggregateProcessor (multiple rules)', () => {

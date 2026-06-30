@@ -1,4 +1,20 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.16
+- fix bug which did set installation back to online on rebirth
+- fix memory leak in shared throttle on installation removal/replacement
+- fix shared VRM broker connections exceeding Node's listener cap with multiple installations on one host
+- fix aggregate sensors permanently including stale values from phases that stopped reporting
+- add request timeout to VRM API calls
+- add crash containment so one bad installation can no longer take down the whole bridge
+- add forced-exit timeout to shutdown so a hang can't block a restart
+- add configurable log level (`log_level` option), replacing always-on console output
+- validate HA MQTT port range at startup
+- re-enable AppArmor confinement (previous profile was missing required network rules)
+- narrow add-on permissions to only what's actually used
+- switch to a multi-stage Docker build (smaller image, no npm in production)
+- remove dead code and unused per-entity device wiring
+- fix version drift across config.yaml/package.json/CHANGELOG
+
 ## 0.1.15
 - fix bug which did not set installations back online after beeing marked as stale
 - start with installations offline and set to online only after we got a message

@@ -7,7 +7,7 @@ function toComponents(configs: HaDiscoveryConfig[]): Record<string, HaDeviceDisc
   const result: Record<string, HaDeviceDiscoveryComponent> = {};
   for (const config of configs) {
     const raw = config as unknown as Record<string, unknown>;
-    const { component, device: _device, ...rest } = raw;
+    const { component, ...rest } = raw;
     const componentKey = config.unique_id.replace(/^vrm_[^_]+_/, '');
     result[componentKey] = { platform: component as HaComponent, ...rest } as HaDeviceDiscoveryComponent;
   }
@@ -25,9 +25,8 @@ export function buildInstallationDiscovery(
   installationName: string,
   appVersion: string,
 ): HaDeviceDiscoveryPayload {
-  const meta = { productName: 'Victron Energy', customName: installationName };
   const configs = buildDiscoveryConfigs(
-    idSite, 'system', 0, meta,
+    idSite, 'system', 0,
     getObservedPaths(),
     CUSTOM_ENTITY_DEFS.aggregate,
   );

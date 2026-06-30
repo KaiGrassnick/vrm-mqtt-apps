@@ -1,6 +1,5 @@
 import type { MqttClient } from 'mqtt';
 import type { VrmInstallation } from './types';
-import { MessageThrottle } from './MessageThrottle';
 import { RollingMessageThrottle } from './RollingMessageThrottle';
 import { DiscoveryPublisher } from '../ha/DiscoveryPublisher';
 import { HaBrokerClient } from '../ha/HaBrokerClient';
@@ -9,6 +8,7 @@ import { VrmBrokerPool } from './VrmBrokerPool';
 import { AggregateProcessor, type AggregateRule } from './AggregateProcessor';
 import { SERVICE_ENTITY_DEFS, CUSTOM_ENTITY_DEFS } from '../ha/entityDefs';
 import { getObservedPaths } from '../ha/observedPaths';
+import { logger } from '../logger';
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
 const SUPPRESS_REPUBLISH = JSON.stringify({ 'keepalive-options': ['suppress-republish'] });
@@ -90,7 +90,7 @@ export class MqttBridgeConnection {
   private readonly pool: VrmBrokerPool;
   private readonly ha: HaBrokerClient;
   private readonly publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics'>;
-  private readonly throttle: MessageThrottle | RollingMessageThrottle;
+  private readonly throttle: RollingMessageThrottle;
   private readonly getIdSite: (brokerPortalId: string) => number | undefined;
   private readonly subscribeTopics: string[];
   private readonly keepaliveTopic: string;
@@ -126,9 +126,9 @@ export class MqttBridgeConnection {
     this.pool = pool;
     this.subscribeTopics = this.buildSubscribeTopics();
     this.keepaliveTopic = `R/${installation.brokerPortalId}/keepalive`;
-    this.throttle = globalThrottle ?? new MessageThrottle(throttleIntervalMs, (topic, payload): void => ha.publish(topic, payload));
+    this.throttle = globalThrottle ?? new RollingMessageThrottle(throttleIntervalMs, (topic, payload): void => ha.publish(topic, payload));
     this.getIdSite = getIdSite ?? ((): undefined => undefined);
-    this.aggregator = this.buildAggregator();
+    this.aggregator = this.buildAggregator(offlineTimeoutMs);
     this.forwardPaths = computeForwardPaths();
     this.offlineTimeoutMs = offlineTimeoutMs;
 
@@ -137,7 +137,7 @@ export class MqttBridgeConnection {
     this.boundHandleError = (err): void => { this.handleError(err); };
     this.boundHandleOffline = (): void => { this.handleOffline(); };
     this.boundHandleReconnect = (): void => {
-      console.log(`[MQTT] Reconnecting for ${this.installation.name} (${this.installation.identifier})`);
+      logger.info(`[MQTT] Reconnecting for ${this.installation.name} (${this.installation.identifier})`);
     };
   }
 
@@ -169,6 +169,10 @@ export class MqttBridgeConnection {
     }
     this.isStale = false;
     this.throttle.flush();
+    // Drop our shard's map entry entirely (not just its contents) so a
+    // removed/replaced installation doesn't leak an empty entry into the
+    // shared throttle forever.
+    this.throttle.removeShard(String(this.installation.idSite));
 
     // Clear retained state values on the HA broker so the old installation's last
     // values don't linger after teardown.
@@ -190,7 +194,7 @@ export class MqttBridgeConnection {
     await new Promise<void>((resolve) => {
       this.client!.unsubscribe(this.subscribeTopics, (err) => {
         if (err) {
-          console.error(`[MQTT] Unsubscribe error for ${this.installation.identifier}: ${err.message}`);
+          logger.error(`[MQTT] Unsubscribe error for ${this.installation.identifier}: ${err.message}`);
         }
         resolve();
       });
@@ -209,9 +213,9 @@ export class MqttBridgeConnection {
 
     this.client.subscribe(this.subscribeTopics, { qos: 0 }, (err) => {
       if (err) {
-        console.error(`[MQTT] Subscribe failed for ${this.installation.identifier}: ${err.message}`);
+        logger.error(`[MQTT] Subscribe failed for ${this.installation.identifier}: ${err.message}`);
       } else {
-        console.debug(`[MQTT] Subscribed ${this.subscribeTopics.length} topics for ${this.installation.identifier}`);
+        logger.debug(`[MQTT] Subscribed ${this.subscribeTopics.length} topics for ${this.installation.identifier}`);
       }
     });
 
@@ -222,7 +226,7 @@ export class MqttBridgeConnection {
     // entity defs are no longer in the forward set. Best-effort — failures
     // are logged at the wire-up site, never raised into handleConnect.
     this.publisher.pruneRetainedTopics(this.installation.idSite).catch((err) => {
-      console.error(`[HA] Prune failed for idSite=${this.installation.idSite}:`, err);
+      logger.error(`[HA] Prune failed for idSite=${this.installation.idSite}:`, err);
     });
     this.sendKeepalive();
 
@@ -237,7 +241,7 @@ export class MqttBridgeConnection {
 
     this.client.publish(this.keepaliveTopic, payload, { qos: 0 }, (err) => {
       if (err) {
-        console.error(`[MQTT] Keepalive failed for ${this.installation.identifier}: ${err.message}`);
+        logger.error(`[MQTT] Keepalive failed for ${this.installation.identifier}: ${err.message}`);
       }
     });
   }
@@ -248,7 +252,7 @@ export class MqttBridgeConnection {
     this.staleTimer = setTimeout(() => {
       this.staleTimer = null;
       this.isStale = true;
-      console.log(`[MQTT] ${this.installation.name} (${this.installation.identifier}) stale — no updates for ${this.offlineTimeoutMs}ms`);
+      logger.info(`[MQTT] ${this.installation.name} (${this.installation.identifier}) stale — no updates for ${this.offlineTimeoutMs}ms`);
       this.publisher.publishAvailability(this.installation.idSite, false);
     }, this.offlineTimeoutMs);
   }
@@ -262,12 +266,19 @@ export class MqttBridgeConnection {
     }
   }
 
+  /** Re-publish availability reflecting our actual current state (not blindly
+   *  online). Called after an HA birth event — a broker reconnect must not
+   *  override a connection that is genuinely stale. */
+  republishAvailability(): void {
+    this.publisher.publishAvailability(this.installation.idSite, !this.isStale);
+  }
+
   publishToVrm(topic: string, payload: string): void {
     // No client means start() was never called — drop the command silently.
     if (!this.client) return;
     this.client.publish(topic, payload, { qos: 0 }, (err) => {
       if (err) {
-        console.error(`[MQTT] Publish error for ${this.installation.identifier}: ${err.message}`);
+        logger.error(`[MQTT] Publish error for ${this.installation.identifier}: ${err.message}`);
       }
     });
   }
@@ -328,7 +339,7 @@ export class MqttBridgeConnection {
    * kept as-is. The processor's observed-sources set then narrows the sum
    * to whichever phases actually report on this installation.
    */
-  private buildAggregator(): AggregateProcessor {
+  private buildAggregator(sourceExpiryMs: number): AggregateProcessor {
     const rules: AggregateRule[] = [];
     for (const def of CUSTOM_ENTITY_DEFS.aggregate) {
       if (!def.forward) continue;
@@ -339,7 +350,10 @@ export class MqttBridgeConnection {
         sourcePaths,
       });
     }
-    return new AggregateProcessor(rules);
+    // Reuse the connection's own staleness window: a phase that stops
+    // reporting for longer than we'd tolerate for the whole installation
+    // shouldn't keep contributing a stale value to the aggregate.
+    return new AggregateProcessor(rules, sourceExpiryMs);
   }
 
   /**
@@ -353,11 +367,11 @@ export class MqttBridgeConnection {
   }
 
   private handleError(err: Error): void {
-    console.error(`[MQTT] Error for ${this.installation.name} (${this.installation.identifier}): ${err.message}`);
+    logger.error(`[MQTT] Error for ${this.installation.name} (${this.installation.identifier}): ${err.message}`);
   }
 
   private handleOffline(): void {
-    console.log(`[MQTT] ${this.installation.name} (${this.installation.identifier}) offline`);
+    logger.info(`[MQTT] ${this.installation.name} (${this.installation.identifier}) offline`);
     if (this.keepaliveTimer !== null) {
       clearInterval(this.keepaliveTimer);
       this.keepaliveTimer = null;

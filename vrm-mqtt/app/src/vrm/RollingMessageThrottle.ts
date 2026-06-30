@@ -1,4 +1,4 @@
-import type { PublishFn } from './MessageThrottle';
+export type PublishFn = (topic: string, payload: string) => void;
 
 /**
  * Sharded, rolling message throttle for fleet-scale MQTT publish load.
@@ -18,6 +18,11 @@ import type { PublishFn } from './MessageThrottle';
  */
 export class RollingMessageThrottle {
   private readonly shards = new Map<string, Map<string, string>>();
+  /** Cache of `shards.keys()` for `tick()`'s round-robin indexing. Rebuilt only
+   *  when a shard is added or removed (rare), not on every tick (frequent —
+   *  as low as 1ms apart for large fleets), to avoid reallocating an array
+   *  just to index one entry. */
+  private shardKeys: string[] = [];
   private cursor = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
@@ -40,6 +45,7 @@ export class RollingMessageThrottle {
       shard = new Map();
       this.shards.set(portalId, shard);
       isNewShard = true;
+      this.shardKeys = Array.from(this.shards.keys());
     }
     shard.set(topic, payload);
     // Re-arm the schedule so a newly-seen portalId is included in the
@@ -63,6 +69,20 @@ export class RollingMessageThrottle {
    */
   flush(): void {
     this.drainAll();
+  }
+
+  /**
+   * Remove a shard's map entry entirely (not just its contents). Call this
+   * when an installation is torn down (removed/replaced) — `flush()`/`drainAll()`
+   * empty a shard's contents but leave its key in `shards` forever, which would
+   * otherwise grow unboundedly under fleet churn and skew the tick-cadence
+   * calculation in `reschedule()` toward dead installations. Safe to call with
+   * any key, including one with no shard.
+   */
+  removeShard(key: string): void {
+    if (this.shards.delete(key)) {
+      this.shardKeys = Array.from(this.shards.keys());
+    }
   }
 
   /** Drain all buffered topics, clear the timer, and stop new flushes. */
@@ -107,7 +127,7 @@ export class RollingMessageThrottle {
 
   private tick(): void {
     if (this.shards.size === 0) return;
-    const portalIds = Array.from(this.shards.keys());
+    const portalIds = this.shardKeys;
     const portalId = portalIds[this.cursor % portalIds.length];
     this.cursor++;
     const shard = this.shards.get(portalId);

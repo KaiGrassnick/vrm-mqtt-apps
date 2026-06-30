@@ -1,6 +1,7 @@
 import type { HaBrokerClient } from './HaBrokerClient';
 import { getCurrentlyForwardedTopics } from './observedPaths';
 import { buildInstallationDiscovery } from './InstallationDevice';
+import { logger } from '../logger';
 
 interface PublishedInstallation {
   discoveryTopic: string;
@@ -73,8 +74,14 @@ export class DiscoveryPublisher {
   }
 
   /**
-   * Re-publish all stored discovery payloads and mark all installations online.
-   * Called when HA sends online to homeassistant/status (HA restart / reload).
+   * Re-publish all stored discovery payloads. Called when HA sends online to
+   * homeassistant/status (HA restart/reload, or our own broker reconnect
+   * redelivering the retained birth message).
+   *
+   * Deliberately does NOT touch availability: each installation's online/offline
+   * state is owned by its MqttBridgeConnection's staleness tracking, not by
+   * whether HA (or our connection to its broker) just restarted. Callers should
+   * use InstallationManager.republishAvailability() to re-assert real state.
    */
   onHaBirth(): void {
     const entries = [...this.published.entries()];
@@ -89,10 +96,6 @@ export class DiscoveryPublisher {
       const nextIndex = startIndex + DiscoveryPublisher.BATCH_SIZE;
       if (nextIndex < entries.length) {
         setTimeout(() => publishBatch(nextIndex), DiscoveryPublisher.BATCH_DELAY_MS).unref();
-      } else {
-        for (const idSite of this.published.keys()) {
-          this.publishAvailability(idSite, true);
-        }
       }
     };
 
@@ -123,6 +126,6 @@ export class DiscoveryPublisher {
       this.ha.publish(topic, '', true);
       cleared++;
     }
-    console.debug(`[HA] Pruned ${cleared} stale retained topic(s) under vrm/${idSite}/`);
+    logger.debug(`[HA] Pruned ${cleared} stale retained topic(s) under vrm/${idSite}/`);
   }
 }

@@ -1,5 +1,6 @@
 import { DiscoveryPublisher } from '../DiscoveryPublisher';
 import type { HaBrokerClient } from '../HaBrokerClient';
+import { logger } from '../../logger';
 
 function makeMockHa(): jest.Mocked<Pick<HaBrokerClient, 'publish' | 'collectRetained'>> {
   return {
@@ -200,7 +201,7 @@ describe('onHaBirth', () => {
     expect(discoveryRepublishes.every(([, , retained]) => retained === true)).toBe(true);
   });
 
-  it('re-publishes availability online for each installation', () => {
+  it('does NOT touch availability — real online/offline state belongs to MqttBridgeConnection staleness tracking', () => {
     const { pub, ha } = publisher();
     pub.publishInstallation(ID_SITE, NAME);
     pub.publishInstallation(999, 'Other Site');
@@ -209,8 +210,7 @@ describe('onHaBirth', () => {
     pub.onHaBirth();
 
     const calls = (ha.publish as jest.Mock).mock.calls as [string, string][];
-    expect(calls.some(([t, p]) => t === `vrm/${ID_SITE}/availability` && p === 'online')).toBe(true);
-    expect(calls.some(([t, p]) => t === 'vrm/999/availability' && p === 'online')).toBe(true);
+    expect(calls.some(([t]) => t.endsWith('/availability'))).toBe(false);
   });
 
   it('does nothing when nothing has been published yet', () => {
@@ -296,7 +296,11 @@ describe('pruneRetainedTopics', () => {
   });
 
   it('logs the number of pruned topics', async () => {
-    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    // debug-level logs are suppressed by default (LOG_LEVEL=info) — raise it
+    // for this test so the underlying console.debug call is observable.
+    const originalLevel = logger.getLevel();
+    logger.setLevel('debug');
+    const spy = jest.spyOn(console, 'debug').mockImplementation(() => {});
     const { pub, ha } = publisher();
     seedRetained(ha, [`vrm/${ID_SITE}/system/0/A`, `vrm/${ID_SITE}/system/0/B`]);
     await pub.pruneRetainedTopics(ID_SITE);
@@ -305,5 +309,6 @@ describe('pruneRetainedTopics', () => {
       expect.stringMatching(/Pruned 2 stale retained topic\(s\) under vrm\/12345\//),
     );
     spy.mockRestore();
+    logger.setLevel(originalLevel);
   });
 });

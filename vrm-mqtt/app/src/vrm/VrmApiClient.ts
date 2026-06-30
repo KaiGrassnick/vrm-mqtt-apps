@@ -6,6 +6,9 @@ import type {
   VrmInstallationsResponse,
   VrmInstallation,
 } from './types';
+import { logger } from '../logger';
+
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export interface VrmApiClientConfig {
   apiToken: string;
@@ -38,7 +41,7 @@ export class VrmApiClient {
     for (const r of data.records) {
       const brokerPortalId = toBrokerPortalId(r.identifier);
       if (brokerPortalId === '') {
-        console.warn(
+        logger.warn(
           `[VRM] Dropping installation idSite=${r.idSite}: empty brokerPortalId after derivation`,
         );
         continue;
@@ -59,6 +62,11 @@ export class VrmApiClient {
     const url = `${this.baseUrl}${path}`;
     let response: Response;
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    // Don't let this timer alone keep the event loop (or a test worker) alive.
+    timeout.unref?.();
+
     try {
       response = await fetch(url, {
         method: 'GET',
@@ -66,13 +74,19 @@ export class VrmApiClient {
           'X-Authorization': this.authHeader,
           'Content-Type': 'application/json',
         },
+        signal: controller.signal,
       });
     } catch (cause) {
+      if (cause instanceof Error && cause.name === 'AbortError') {
+        throw new VrmApiError(`Request to ${url} timed out after ${REQUEST_TIMEOUT_MS}ms`, 0, '');
+      }
       throw new VrmApiError(
         `Network error calling ${url}: ${cause instanceof Error ? cause.message : String(cause)}`,
         0,
         '',
       );
+    } finally {
+      clearTimeout(timeout);
     }
 
     const body = await response.text();

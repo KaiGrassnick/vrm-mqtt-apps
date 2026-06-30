@@ -31,6 +31,7 @@ Home Assistant Mosquitto broker using MQTT discovery.
 | `ha_mqtt_port` | no | `1883` | HA MQTT broker port. |
 | `ha_mqtt_username` | no | empty | MQTT username (only needed for non-anonymous brokers). |
 | `ha_mqtt_password` | no | empty | MQTT password. |
+| `log_level` | no | `info` | Log verbosity: `debug`, `info`, `warn`, or `error`. Use `debug` for extra detail when diagnosing a connection issue. |
 
 ## Getting a VRM API token
 

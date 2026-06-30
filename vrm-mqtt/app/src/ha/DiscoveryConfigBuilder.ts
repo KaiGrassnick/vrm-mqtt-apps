@@ -1,9 +1,7 @@
-import type { DeviceMeta, HaDevice, HaDiscoveryConfig } from './types';
+import type { HaDiscoveryConfig } from './types';
 import type { CustomAggregateEntityDef, EntityDef } from './entityDefs';
 import { SERVICE_ENTITY_DEFS } from './entityDefs';
 import type { VrmServiceName } from '../vrm/types';
-
-const MANUFACTURER = 'Victron Energy';
 
 /**
  * Builds HA MQTT discovery configs for all entities of one VRM service instance.
@@ -16,14 +14,12 @@ export function buildDiscoveryConfigs(
   idSite: number,
   service: VrmServiceName,
   instance: string | number,
-  meta: DeviceMeta,
   observedPaths: string[],
   customAggregates: readonly CustomAggregateEntityDef[] = [],
 ): HaDiscoveryConfig[] {
   const defs = SERVICE_ENTITY_DEFS[service];
   if (!defs) return [];
 
-  const device = buildDevice(idSite, service, instance, meta);
   const configs: HaDiscoveryConfig[] = [];
   const pathSet = new Set(observedPaths);
 
@@ -32,10 +28,10 @@ export function buildDiscoveryConfigs(
     if (!def.forward) continue;
     if (def.path.includes('{n}')) {
       for (const n of matchTemplateIndices(def.path, observedPaths)) {
-        configs.push(entityToConfig(idSite, service, instance, device, def, n));
+        configs.push(entityToConfig(idSite, service, instance, def, n));
       }
     } else if (pathSet.has(def.path)) {
-      configs.push(entityToConfig(idSite, service, instance, device, def));
+      configs.push(entityToConfig(idSite, service, instance, def));
     }
   }
 
@@ -47,7 +43,7 @@ export function buildDiscoveryConfigs(
   for (const agg of customAggregates) {
     if (!agg.forward) continue;
     if (expandAggregateSourcePaths(agg.aggregateFrom, observedPaths).length > 0) {
-      configs.push(entityToConfig(idSite, 'custom', 'aggregate', device, agg));
+      configs.push(entityToConfig(idSite, 'custom', 'aggregate', agg));
     }
   }
 
@@ -100,28 +96,6 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function buildDevice(
-  idSite: number,
-  service: VrmServiceName,
-  instance: string | number,
-  meta: DeviceMeta,
-): HaDevice {
-  const isSystem = service === 'system';
-  return {
-    identifiers: [
-      isSystem
-        ? `vrm_${idSite}_system`
-        : `vrm_${idSite}_${service}_${instance}`,
-    ],
-    name: meta.customName ?? meta.productName,
-    manufacturer: MANUFACTURER,
-    model: meta.productName,
-    sw_version: meta.firmwareVersion,
-    serial_number: meta.serial,
-    ...(isSystem ? {} : { via_device: `vrm_${idSite}_system` }),
-  };
-}
-
 function resolveN(template: string, n: string): string {
   return template.replace('{n}', n);
 }
@@ -166,7 +140,6 @@ function entityToConfig(
   idSite: number,
   service: string,
   instance: string | number,
-  device: HaDevice,
   def: EntityDef | CustomAggregateEntityDef,
   n?: string,
 ): HaDiscoveryConfig {
@@ -180,7 +153,6 @@ function entityToConfig(
       name,
       unique_id: uniqueId,
       default_entity_id: `sensor.${uniqueId}`,
-      device,
       component: 'sensor',
       state_topic: sTopic,
       value_template:
@@ -197,7 +169,7 @@ function entityToConfig(
   const uniqueId = makeUniqueId(idSite, service, instance, path);
   const sTopic = makeStateTopic(idSite, service, instance, path);
   const cTopic = `${sTopic}/set`;
-  const base = { name, unique_id: uniqueId, default_entity_id: `${def.component}.${uniqueId}`, device };
+  const base = { name, unique_id: uniqueId, default_entity_id: `${def.component}.${uniqueId}` };
 
   switch (def.component) {
     case 'sensor':

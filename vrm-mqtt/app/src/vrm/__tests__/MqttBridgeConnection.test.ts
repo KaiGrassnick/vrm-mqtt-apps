@@ -323,6 +323,28 @@ describe('MqttBridgeConnection', () => {
 
       expect(client.publish).not.toHaveBeenCalled();
     });
+
+    it('removes its shard from the shared throttle, so a removed/replaced installation does not leak an empty entry', async () => {
+      const client = makeMockClient(true);
+      const globalThrottle = {
+        enqueue: jest.fn(),
+        start: jest.fn(),
+        flush: jest.fn(),
+        removeShard: jest.fn(),
+      };
+      const conn = new MqttBridgeConnection({
+        installation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: makeMockHa() as never,
+        publisher: makeMockPublisher() as never,
+        globalThrottle: globalThrottle as never,
+      });
+      conn.start();
+
+      await conn.stop();
+
+      expect(globalThrottle.removeShard).toHaveBeenCalledWith(String(installation.idSite));
+    });
   });
 
   describe('updateName', () => {
@@ -435,6 +457,11 @@ describe('MqttBridgeConnection', () => {
 
     it('does not mark offline while forwarded messages keep arriving', () => {
       const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      // handleConnect always publishes one baseline offline call on connect
+      // (starts stale until proven otherwise) — count beyond that baseline.
+      const offlineCallsAtConnect = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
+        ([_id, online]: [number, boolean]) => online === false,
+      ).length;
       jest.advanceTimersByTime(TIMEOUT - 1);
       emitForwarded(client);
       jest.advanceTimersByTime(TIMEOUT - 1);
@@ -443,7 +470,7 @@ describe('MqttBridgeConnection', () => {
       const offlineCalls = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
         ([_id, online]: [number, boolean]) => online === false,
       );
-      expect(offlineCalls).toHaveLength(0);
+      expect(offlineCalls).toHaveLength(offlineCallsAtConnect);
     });
 
     it('unobserved paths do not reset the timer', () => {
@@ -455,6 +482,11 @@ describe('MqttBridgeConnection', () => {
 
     it('aggregate output resets the timer', () => {
       const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      // handleConnect always publishes one baseline offline call on connect
+      // (starts stale until proven otherwise) — count beyond that baseline.
+      const offlineCallsAtConnect = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
+        ([_id, online]: [number, boolean]) => online === false,
+      ).length;
       // Sanity: the aggregate source path is observed.
       emitAggregateSource(client);
       jest.advanceTimersByTime(TIMEOUT - 1);
@@ -462,7 +494,7 @@ describe('MqttBridgeConnection', () => {
       const offlineCalls = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
         ([_id, online]: [number, boolean]) => online === false,
       );
-      expect(offlineCalls).toHaveLength(0);
+      expect(offlineCalls).toHaveLength(offlineCallsAtConnect);
     });
 
     it('handleOffline clears the timer (no double offline publish)', () => {
@@ -485,11 +517,16 @@ describe('MqttBridgeConnection', () => {
 
     it('offlineTimeoutMs=0 disables the watchdog', () => {
       const { publisher } = makeConn({ offlineTimeoutMs: 0 });
+      // handleConnect always publishes one baseline offline call on connect
+      // (starts stale until proven otherwise) — count beyond that baseline.
+      const offlineCallsAtConnect = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
+        ([_id, online]: [number, boolean]) => online === false,
+      ).length;
       jest.advanceTimersByTime(60 * 60 * 1000);
       const offlineCalls = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
         ([_id, online]: [number, boolean]) => online === false,
       );
-      expect(offlineCalls).toHaveLength(0);
+      expect(offlineCalls).toHaveLength(offlineCallsAtConnect);
     });
 
     it('does not publish availability online on first-ever connect (starts offline until a message arrives)', () => {
@@ -502,7 +539,9 @@ describe('MqttBridgeConnection', () => {
 
     it('flips availability to online on the first forwarded message after first-ever connect', () => {
       const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
-      expect(publisher.publishAvailability).not.toHaveBeenCalled();
+      // Only the baseline offline publish from connect so far — no online yet.
+      expect(publisher.publishAvailability).toHaveBeenCalledTimes(1);
+      expect(publisher.publishAvailability).toHaveBeenLastCalledWith(idSite, false);
       emitForwarded(client);
       expect(publisher.publishAvailability).toHaveBeenLastCalledWith(idSite, true);
     });
@@ -530,23 +569,47 @@ describe('MqttBridgeConnection', () => {
 
     it('reconnect re-arms the timer', () => {
       const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
-      // First staleness window: no messages → fires after TIMEOUT+1.
+      const countOffline = (): number =>
+        (publisher.publishAvailability as jest.Mock).mock.calls.filter(
+          ([_id, online]: [number, boolean]) => online === false,
+        ).length;
+
+      // First staleness window: no messages → fires after TIMEOUT+1 (on top of
+      // the baseline offline call handleConnect always publishes on connect).
       jest.advanceTimersByTime(TIMEOUT + 1);
       expect(publisher.publishAvailability).toHaveBeenCalledWith(idSite, false);
-      // Reconnect: handleConnect re-arms the timer.
+      const offlineCallsBeforeReconnect = countOffline();
+
+      // Reconnect: handleConnect republishes the baseline offline call and re-arms the timer.
       client.emit('connect');
+      expect(countOffline()).toBe(offlineCallsBeforeReconnect + 1);
+
       jest.advanceTimersByTime(TIMEOUT - 1);
-      const offlineCallsAfterReconnect = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
-        ([_id, online]: [number, boolean]) => online === false,
-      );
-      // Still exactly 1 offline call (the first one). The post-reconnect window hasn't elapsed.
-      expect(offlineCallsAfterReconnect).toHaveLength(1);
+      // No NEW offline call yet — the post-reconnect window hasn't elapsed.
+      expect(countOffline()).toBe(offlineCallsBeforeReconnect + 1);
+
       jest.advanceTimersByTime(2);
-      const offlineCallsAfterFire = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
-        ([_id, online]: [number, boolean]) => online === false,
-      );
       // Second staleness window elapsed: timer fires again.
-      expect(offlineCallsAfterFire).toHaveLength(2);
+      expect(countOffline()).toBe(offlineCallsBeforeReconnect + 2);
+    });
+
+    it('republishAvailability() re-publishes offline when stale (HA birth must not override a genuinely offline installation)', () => {
+      const { publisher, conn } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      jest.advanceTimersByTime(TIMEOUT + 1);
+      expect(publisher.publishAvailability).toHaveBeenLastCalledWith(idSite, false);
+
+      (publisher.publishAvailability as jest.Mock).mockClear();
+      conn.republishAvailability();
+      expect(publisher.publishAvailability).toHaveBeenCalledWith(idSite, false);
+    });
+
+    it('republishAvailability() re-publishes online when not stale', () => {
+      const { client, publisher, conn } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      emitForwarded(client);
+
+      (publisher.publishAvailability as jest.Mock).mockClear();
+      conn.republishAvailability();
+      expect(publisher.publishAvailability).toHaveBeenCalledWith(idSite, true);
     });
   });
 
@@ -1002,6 +1065,42 @@ describe('MqttBridgeConnection', () => {
         ([t]: [string]) => t === `vrm/${idSite}/system/0/Ac/Grid/L1/Power`,
       );
       expect(lphaseClear).toEqual([]);
+    });
+
+    it('drops a phase from the aggregate once it has been quiet for longer than offlineTimeoutMs', () => {
+      // offlineTimeoutMs is plumbed through to the aggregator's source-expiry
+      // (see AggregateProcessor's sourceExpiryMs) — confirms the wiring, not
+      // just the unit-level behavior already covered in AggregateProcessor.test.ts.
+      const SOURCE_EXPIRY = 5000;
+      const client = makeMockClient(true);
+      const ha = makeMockHa();
+      const conn = new MqttBridgeConnection({
+        installation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: ha as never,
+        publisher: makeMockPublisher() as never,
+        throttleIntervalMs: INTERVAL,
+        getIdSite: idSiteFor(installation),
+        offlineTimeoutMs: SOURCE_EXPIRY,
+      });
+      conn.start();
+      client.emit('connect');
+
+      const aggTopic = `vrm/${idSite}/custom/aggregate/Ac/Grid/Power`;
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":100}');
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L2/Power`, '{"value":150}');
+      jest.advanceTimersByTime(INTERVAL);
+      expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(250);
+
+      // L2 goes quiet (e.g. reconfigured to single-phase) for longer than
+      // offlineTimeoutMs, while L1 keeps reporting.
+      jest.advanceTimersByTime(SOURCE_EXPIRY + INTERVAL);
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":120}');
+      jest.advanceTimersByTime(INTERVAL);
+
+      // Without expiry this would be 120+150=270 — L2's stale value forever
+      // inflating the sum. With expiry, only the still-reporting L1 counts.
+      expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(120);
     });
   });
 

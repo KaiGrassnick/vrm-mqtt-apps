@@ -5,6 +5,7 @@ import type { VrmInstallation } from './types';
 import type { HaBrokerClient } from '../ha/HaBrokerClient';
 import type { DiscoveryPublisher } from '../ha/DiscoveryPublisher';
 import { routeFromHa } from '../ha/MessageRouter';
+import { logger } from '../logger';
 
 export interface InstallationManagerOptions {
   apiToken: string;
@@ -57,7 +58,7 @@ export class InstallationManager {
     const active = installations.filter((i) => {
       const { skipped, reason } = isSkipped(i);
       if (skipped) {
-        console.log(`[Manager] Skipping ${reason} installation ${i.name} (${i.identifier})`);
+        logger.info(`[Manager] Skipping ${reason} installation ${i.name} (${i.identifier})`);
         return false;
       }
       return true;
@@ -70,7 +71,7 @@ export class InstallationManager {
         await this.publisher.removeInstallation(conn.idSite);
         this.connectionsByIdSite.delete(conn.idSite);
         this.connections.delete(idSite);
-        console.log(`[Manager] Removed installation idSite=${idSite}`);
+        logger.info(`[Manager] Removed installation idSite=${idSite}`);
       }
     }
 
@@ -80,7 +81,7 @@ export class InstallationManager {
     for (const inst of installations) {
       const { skipped, reason } = isSkipped(inst);
       if (skipped && !this.connections.has(inst.idSite)) {
-        console.log(`[Manager] Purging HA discovery for ${reason} installation ${inst.name} (${inst.identifier})`);
+        logger.info(`[Manager] Purging HA discovery for ${reason} installation ${inst.name} (${inst.identifier})`);
         await this.publisher.removeInstallation(inst.idSite);
       }
     }
@@ -107,7 +108,7 @@ export class InstallationManager {
         }
         this.connections.set(installation.idSite, conn);
         this.connectionsByIdSite.set(installation.idSite, conn);
-        console.log(`[Manager] Added installation ${installation.name} (${installation.identifier}) @ ${installation.mqttHost}`);
+        logger.info(`[Manager] Added installation ${installation.name} (${installation.identifier}) @ ${installation.mqttHost}`);
       } else {
         existing.updateName(installation.name);
       }
@@ -129,12 +130,12 @@ export class InstallationManager {
       if (parts[0] !== 'W' || parts.length < 4) continue;
       const idSite = Number(parts[1]);
       if (!Number.isInteger(idSite)) {
-        console.warn(`[Manager] Dropping command with non-numeric idSite ${parts[1]}`);
+        logger.warn(`[Manager] Dropping command with non-numeric idSite ${parts[1]}`);
         continue;
       }
       const conn = this.connectionsByIdSite.get(idSite);
       if (!conn) {
-        console.warn(`[Manager] No connection found for idSite ${idSite} — dropping command`);
+        logger.warn(`[Manager] No connection found for idSite ${idSite} — dropping command`);
         continue;
       }
       parts[1] = conn.brokerPortalId;
@@ -142,17 +143,26 @@ export class InstallationManager {
     }
   }
 
+  /** Re-publish each connection's actual current availability. Called after an
+   *  HA birth event so a broker reconnect doesn't blindly mark every installation
+   *  online regardless of whether its VRM connection is genuinely stale. */
+  republishAvailability(): void {
+    for (const conn of this.connections.values()) {
+      conn.republishAvailability();
+    }
+  }
+
   async suspend(): Promise<void> {
     if (this.suspended) return;
     this.suspended = true;
-    console.log('[Manager] HA broker offline — suspending all VRM connections');
+    logger.info('[Manager] HA broker offline — suspending all VRM connections');
     await Promise.all([...this.connections.values()].map(c => c.stop()));
   }
 
   resume(): void {
     if (!this.suspended) return;
     this.suspended = false;
-    console.log('[Manager] HA broker reconnected — resuming all VRM connections');
+    logger.info('[Manager] HA broker reconnected — resuming all VRM connections');
     for (const conn of this.connections.values()) {
       conn.start();
     }
