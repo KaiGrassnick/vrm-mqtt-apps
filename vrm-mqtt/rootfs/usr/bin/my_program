@@ -2,14 +2,5 @@
 # Pass-through to the Node bridge. Intentionally minimal: bashio has already
 # set up the environment in the parent service script, and a second round of
 # bashio sourcing here would strip exported vars before exec'ing node.
-if ! command -v node >/dev/null 2>&1; then
-    echo "[vrm-mqtt] FATAL: node not in PATH (PATH=$PATH)" >&2
-    exit 1
-fi
-if [ ! -f /app/dist/index.js ]; then
-    echo "[vrm-mqtt] FATAL: /app/dist/index.js missing" >&2
-    ls -la /app 2>&1 >&2 || true
-    exit 1
-fi
-echo "[vrm-mqtt] starting node $(command -v node) /app/dist/index.js" >&2
+echo "[vrm-mqtt] starting /app/dist/index.js" >&2
 exec node /app/dist/index.js

@@ -20,14 +20,40 @@ export interface AggregateRule {
  * The bridge calls `clear()` on disconnect so that a reconnect re-establishes
  * the observed-sources set from scratch — VRM re-publishes every value on
  * reconnect, so the buffer is repopulated within the first few messages.
+ *
+ * Between disconnects, a source that stops reporting (e.g. a phase removed
+ * by a hardware reconfiguration, or a sensor going dark) but whose
+ * installation otherwise stays connected would, without `sourceExpiryMs`,
+ * keep contributing its last known value to the sum forever — `clear()`
+ * never runs because the connection itself never drops. `computeSum` instead
+ * excludes any source whose last update is older than `sourceExpiryMs`.
  */
 export class AggregateProcessor {
-  private readonly rules: ReadonlyArray<AggregateRule>;
   private readonly latest = new Map<string, number>();
+  private readonly lastSeenAt = new Map<string, number>();
   private readonly observedSources = new Set<string>();
+  /** Reverse index built once at construction: source path → rules that watch
+   *  it. Replaces a per-message linear scan over every rule's sourcePaths
+   *  with an O(1) lookup. */
+  private readonly rulesBySource = new Map<string, AggregateRule[]>();
 
-  constructor(rules: AggregateRule[]) {
-    this.rules = rules;
+  constructor(
+    rules: AggregateRule[],
+    /** A source path is excluded from the sum once this long has passed since
+     *  it last reported. 0 = disabled (never expire). Default 300_000 (5min),
+     *  matching the connection-level staleness default. */
+    private readonly sourceExpiryMs = 300_000,
+  ) {
+    for (const rule of rules) {
+      for (const sp of rule.sourcePaths) {
+        const existing = this.rulesBySource.get(sp);
+        if (existing) {
+          existing.push(rule);
+        } else {
+          this.rulesBySource.set(sp, [rule]);
+        }
+      }
+    }
   }
 
   /**
@@ -35,10 +61,19 @@ export class AggregateProcessor {
    * rules include this source. Returns [] for untracked paths.
    */
   feed(sourcePath: string, value: number): MqttMessage[] {
-    if (!this.isTracked(sourcePath)) return [];
+    const matchingRules = this.rulesBySource.get(sourcePath);
+    if (!matchingRules) return [];
     this.observedSources.add(sourcePath);
     this.latest.set(sourcePath, value);
-    return this.recompute(sourcePath);
+    this.lastSeenAt.set(sourcePath, Date.now());
+    const out: MqttMessage[] = [];
+    for (const rule of matchingRules) {
+      const sum = this.computeSum(rule);
+      if (sum !== null) {
+        out.push({ topic: rule.targetTopic, payload: `{"value":${sum}}` });
+      }
+    }
+    return out;
   }
 
   /**
@@ -56,30 +91,20 @@ export class AggregateProcessor {
   /** Reset all buffered values and the observed-sources set. */
   clear(): void {
     this.latest.clear();
+    this.lastSeenAt.clear();
     this.observedSources.clear();
-  }
-
-  private isTracked(sourcePath: string): boolean {
-    return this.rules.some(r => r.sourcePaths.includes(sourcePath));
-  }
-
-  private recompute(changedPath: string): MqttMessage[] {
-    const out: MqttMessage[] = [];
-    for (const rule of this.rules) {
-      if (!rule.sourcePaths.includes(changedPath)) continue;
-      const sum = this.computeSum(rule);
-      if (sum !== null) {
-        out.push({ topic: rule.targetTopic, payload: `{"value":${sum}}` });
-      }
-    }
-    return out;
   }
 
   private computeSum(rule: AggregateRule): number | null {
     let sum = 0;
     let counted = 0;
+    const now = Date.now();
     for (const sp of rule.sourcePaths) {
       if (!this.observedSources.has(sp)) continue;
+      if (this.sourceExpiryMs > 0) {
+        const seenAt = this.lastSeenAt.get(sp);
+        if (seenAt === undefined || now - seenAt > this.sourceExpiryMs) continue;
+      }
       const v = this.latest.get(sp);
       if (v === undefined) return null;
       sum += v;

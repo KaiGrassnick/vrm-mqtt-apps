@@ -48,10 +48,10 @@ type DistributedOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> 
 
 /**
  * A single component entry inside the `components` map of a device discovery payload.
- * It is the entity config with `component` renamed to `p` (platform) and `device`
- * removed (device lives at the outer payload level).
+ * It is the entity config with `component` renamed to `p` (platform). Device
+ * grouping lives once at the outer payload level, not per component.
  */
-export type HaDeviceDiscoveryComponent = DistributedOmit<HaDiscoveryConfig, 'component' | 'device'> & { platform: HaComponent };
+export type HaDeviceDiscoveryComponent = DistributedOmit<HaDiscoveryConfig, 'component'> & { platform: HaComponent };
 
 /** The assembled device discovery payload published to homeassistant/device/{id}/config. */
 export interface HaDeviceDiscoveryPayload {
@@ -68,7 +68,6 @@ interface HaDiscoveryBase {
   unique_id: string;
   /** Sets the default entity_id, e.g. sensor.{default_entity_id}. */
   default_entity_id: string;
-  device: HaDevice;
 }
 
 export interface HaSensorConfig extends HaDiscoveryBase {

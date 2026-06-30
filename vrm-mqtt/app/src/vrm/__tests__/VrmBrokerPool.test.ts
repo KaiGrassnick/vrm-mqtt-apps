@@ -1,10 +1,11 @@
 import type { MqttClient } from 'mqtt';
 
-function makeMockClient(): Partial<MqttClient> & { endAsync: jest.Mock } {
+function makeMockClient(): Partial<MqttClient> & { endAsync: jest.Mock; setMaxListeners: jest.Mock } {
   return {
     endAsync: jest.fn().mockResolvedValue(undefined),
     on: jest.fn().mockReturnThis(),
-  } as unknown as Partial<MqttClient> & { endAsync: jest.Mock };
+    setMaxListeners: jest.fn().mockReturnThis(),
+  } as unknown as Partial<MqttClient> & { endAsync: jest.Mock; setMaxListeners: jest.Mock };
 }
 
 const mockConnect = jest.fn();
@@ -50,6 +51,16 @@ describe('VrmBrokerPool', () => {
 
       expect(mockConnect).toHaveBeenCalledTimes(1);
       expect(a).toBe(b);
+    });
+
+    it('raises the listener cap so many installations sharing one host do not trip MaxListenersExceededWarning', () => {
+      const client = makeMockClient();
+      mockConnect.mockReturnValueOnce(client);
+
+      const pool = new VrmBrokerPool(opts);
+      pool.getOrCreate('mqtt5.victronenergy.com');
+
+      expect(client.setMaxListeners).toHaveBeenCalledWith(0);
     });
 
     it('creates separate clients for different hosts', () => {

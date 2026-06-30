@@ -18,6 +18,7 @@ export HA_MQTT_HOST="$(bashio::config 'ha_mqtt_host')"
 export HA_MQTT_PORT="$(bashio::config 'ha_mqtt_port')"
 export HA_MQTT_USERNAME="$(bashio::config 'ha_mqtt_username')"
 export HA_MQTT_PASSWORD="$(bashio::config 'ha_mqtt_password')"
+export LOG_LEVEL="$(bashio::config 'log_level')"
 
 # bashio::config returns the literal string "null" for missing keys and an
 # empty string for explicitly empty values. Either means "no token".

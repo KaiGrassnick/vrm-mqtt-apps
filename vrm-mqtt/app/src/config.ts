@@ -31,6 +31,16 @@ function optionalEnvStringList(name: string): string[] {
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+function optionalEnvPort(name: string, defaultValue: number): number {
+  const port = optionalEnvInt(name, defaultValue);
+  if (port < 1 || port > 65535) {
+    throw new ConfigurationError(
+      `Environment variable ${name} must be a valid port (1-65535), got: ${port}`,
+    );
+  }
+  return port;
+}
+
 export interface AppConfig {
   vrm: {
     apiToken: string;
@@ -66,7 +76,7 @@ export function loadConfig(): AppConfig {
     },
     mqtt: {
       host: optionalEnv('HA_MQTT_HOST', 'addon_core_mosquitto'),
-      port: optionalEnvInt('HA_MQTT_PORT', 1883),
+      port: optionalEnvPort('HA_MQTT_PORT', 1883),
       username: optionalEnv('HA_MQTT_USERNAME', ''),
       password: optionalEnv('HA_MQTT_PASSWORD', ''),
     },

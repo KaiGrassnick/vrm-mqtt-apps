@@ -6,7 +6,13 @@ profile vrm-mqtt flags=(attach_disconnected,mediate_deleted) {
   # Capabilities
   file,
   signal (send) set=(kill,term,int,hup,cont),
+
+  # Network: bashio/curl reach the Supervisor API, which requires DNS
+  # resolution (UDP dgram) in addition to TCP streams, over both IPv4 and IPv6.
   network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
 
   # S6-Overlay
   /init ix,
@@ -39,9 +45,15 @@ profile vrm-mqtt flags=(attach_disconnected,mediate_deleted) {
   profile my_program flags=(attach_disconnected,mediate_deleted) {
     #include <abstractions/base>
 
-    # Capabilities (NOT inherited from parent profile — must be repeated)
+    # Capabilities (NOT inherited from parent profile — must be repeated).
+    # Node connects out to the VRM REST API (HTTPS), the VRM MQTT brokers
+    # (MQTTS, 8883) and the local HA broker (MQTT, 1883). All of these first
+    # require DNS resolution (UDP dgram), and the public VRM hosts frequently
+    # resolve to IPv6 — so all four families/types are needed.
     network inet stream,
     network inet6 stream,
+    network inet dgram,
+    network inet6 dgram,
 
     # Receive signals from S6-Overlay
     signal (receive) peer=*_vrm-mqtt,

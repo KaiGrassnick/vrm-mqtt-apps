@@ -1,6 +1,7 @@
 import type { HaBrokerClient } from './HaBrokerClient';
 import { getCurrentlyForwardedTopics } from './observedPaths';
 import { buildInstallationDiscovery } from './InstallationDevice';
+import { logger } from '../logger';
 
 interface PublishedInstallation {
   discoveryTopic: string;
@@ -125,6 +126,6 @@ export class DiscoveryPublisher {
       this.ha.publish(topic, '', true);
       cleared++;
     }
-    console.debug(`[HA] Pruned ${cleared} stale retained topic(s) under vrm/${idSite}/`);
+    logger.debug(`[HA] Pruned ${cleared} stale retained topic(s) under vrm/${idSite}/`);
   }
 }

@@ -73,6 +73,24 @@ describe('VrmApiClient', () => {
       mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
       await expect(client.getMe()).rejects.toBeInstanceOf(VrmApiError);
     });
+
+    it('passes an AbortSignal to fetch so a hung request can be cancelled', async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeFetchResponse({ user: { id: 1, name: 'u', email: 'u@u.com' }, success: true }),
+      );
+      await client.getMe();
+      const [, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(opts.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('throws a timeout-specific VrmApiError when the request is aborted', async () => {
+      const abortError = new Error('This operation was aborted');
+      abortError.name = 'AbortError';
+      mockFetch.mockRejectedValueOnce(abortError);
+      await expect(client.getMe()).rejects.toMatchObject({
+        message: expect.stringContaining('timed out after 30000ms'),
+      });
+    });
   });
 
   describe('getInstallations()', () => {

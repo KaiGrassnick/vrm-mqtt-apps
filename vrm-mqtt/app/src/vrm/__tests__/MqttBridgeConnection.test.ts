@@ -323,6 +323,28 @@ describe('MqttBridgeConnection', () => {
 
       expect(client.publish).not.toHaveBeenCalled();
     });
+
+    it('removes its shard from the shared throttle, so a removed/replaced installation does not leak an empty entry', async () => {
+      const client = makeMockClient(true);
+      const globalThrottle = {
+        enqueue: jest.fn(),
+        start: jest.fn(),
+        flush: jest.fn(),
+        removeShard: jest.fn(),
+      };
+      const conn = new MqttBridgeConnection({
+        installation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: makeMockHa() as never,
+        publisher: makeMockPublisher() as never,
+        globalThrottle: globalThrottle as never,
+      });
+      conn.start();
+
+      await conn.stop();
+
+      expect(globalThrottle.removeShard).toHaveBeenCalledWith(String(installation.idSite));
+    });
   });
 
   describe('updateName', () => {
@@ -1043,6 +1065,42 @@ describe('MqttBridgeConnection', () => {
         ([t]: [string]) => t === `vrm/${idSite}/system/0/Ac/Grid/L1/Power`,
       );
       expect(lphaseClear).toEqual([]);
+    });
+
+    it('drops a phase from the aggregate once it has been quiet for longer than offlineTimeoutMs', () => {
+      // offlineTimeoutMs is plumbed through to the aggregator's source-expiry
+      // (see AggregateProcessor's sourceExpiryMs) — confirms the wiring, not
+      // just the unit-level behavior already covered in AggregateProcessor.test.ts.
+      const SOURCE_EXPIRY = 5000;
+      const client = makeMockClient(true);
+      const ha = makeMockHa();
+      const conn = new MqttBridgeConnection({
+        installation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: ha as never,
+        publisher: makeMockPublisher() as never,
+        throttleIntervalMs: INTERVAL,
+        getIdSite: idSiteFor(installation),
+        offlineTimeoutMs: SOURCE_EXPIRY,
+      });
+      conn.start();
+      client.emit('connect');
+
+      const aggTopic = `vrm/${idSite}/custom/aggregate/Ac/Grid/Power`;
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":100}');
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L2/Power`, '{"value":150}');
+      jest.advanceTimersByTime(INTERVAL);
+      expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(250);
+
+      // L2 goes quiet (e.g. reconfigured to single-phase) for longer than
+      // offlineTimeoutMs, while L1 keeps reporting.
+      jest.advanceTimersByTime(SOURCE_EXPIRY + INTERVAL);
+      emit(client, `N/${portalId}/system/0/Ac/Grid/L1/Power`, '{"value":120}');
+      jest.advanceTimersByTime(INTERVAL);
+
+      // Without expiry this would be 120+150=270 — L2's stale value forever
+      // inflating the sum. With expiry, only the still-reporting L1 counts.
+      expect(aggregatePayloads(ha, aggTopic).at(-1)).toBe(120);
     });
   });
 
