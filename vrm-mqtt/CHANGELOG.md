@@ -1,4 +1,8 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.15
+- fix bug which did not set installations back online after beeing marked as stale
+- start with installations offline and set to online only after we got a message
+
 ## 0.1.14
 - Mark installations offline after a configurable period of silence (default 5 minutes). Adds the `vrm_offline_timeout_ms` add-on option (env var `VRM_OFFLINE_TIMEOUT_MS`); `0` disables the feature.
 

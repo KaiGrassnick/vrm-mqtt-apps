@@ -103,6 +103,11 @@ export class MqttBridgeConnection {
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private staleTimer: ReturnType<typeof setTimeout> | null = null;
   private isFirstKeepalive = true;
+  /** True between the moment the staleness watchdog (or transport offline) publishes
+   *  availability=offline and the moment a forwarded message republishes
+   *  availability=online. Starts true so we don't claim online before VRM has
+   *  actually sent us data. */
+  private isStale = true;
   /** HA-side topics this connection has forwarded; cleared on stop() so the broker
    *  doesn't keep the old installation's last value retained. */
   private readonly publishedStateTopics = new Set<string>();
@@ -162,6 +167,7 @@ export class MqttBridgeConnection {
       clearTimeout(this.staleTimer);
       this.staleTimer = null;
     }
+    this.isStale = false;
     this.throttle.flush();
 
     // Clear retained state values on the HA broker so the old installation's last
@@ -210,7 +216,7 @@ export class MqttBridgeConnection {
     });
 
     this.publisher.publishInstallation(this.installation.idSite, this.installation.name);
-    this.publisher.publishAvailability(this.installation.idSite, true);
+    this.publisher.publishAvailability(this.installation.idSite, false);
     this.touch();
     // Fire-and-forget cleanup of stale retained topics from prior runs whose
     // entity defs are no longer in the forward set. Best-effort — failures
@@ -241,9 +247,19 @@ export class MqttBridgeConnection {
     if (this.staleTimer !== null) clearTimeout(this.staleTimer);
     this.staleTimer = setTimeout(() => {
       this.staleTimer = null;
+      this.isStale = true;
       console.log(`[MQTT] ${this.installation.name} (${this.installation.identifier}) stale — no updates for ${this.offlineTimeoutMs}ms`);
       this.publisher.publishAvailability(this.installation.idSite, false);
     }, this.offlineTimeoutMs);
+  }
+
+  /** Republish availability=online iff we are currently considered stale.
+   *  Called when we have positive evidence of liveness (a forwarded message). */
+  private markOnline(): void {
+    if (this.isStale) {
+      this.isStale = false;
+      this.publisher.publishAvailability(this.installation.idSite, true);
+    }
   }
 
   publishToVrm(topic: string, payload: string): void {
@@ -295,7 +311,10 @@ export class MqttBridgeConnection {
       }
     }
 
-    if (haPublished) this.touch();
+    if (haPublished) {
+      this.markOnline();
+      this.touch();
+    }
   }
 
   /**
@@ -348,6 +367,7 @@ export class MqttBridgeConnection {
       this.staleTimer = null;
     }
     this.throttle.flush();
+    this.isStale = true;
     this.publisher.publishAvailability(this.installation.idSite, false);
   }
 }

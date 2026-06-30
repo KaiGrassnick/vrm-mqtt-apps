@@ -492,6 +492,42 @@ describe('MqttBridgeConnection', () => {
       expect(offlineCalls).toHaveLength(0);
     });
 
+    it('does not publish availability online on first-ever connect (starts offline until a message arrives)', () => {
+      const { publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      const onlineCalls = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
+        ([_id, online]: [number, boolean]) => online === true,
+      );
+      expect(onlineCalls).toHaveLength(0);
+    });
+
+    it('flips availability to online on the first forwarded message after first-ever connect', () => {
+      const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      expect(publisher.publishAvailability).not.toHaveBeenCalled();
+      emitForwarded(client);
+      expect(publisher.publishAvailability).toHaveBeenLastCalledWith(idSite, true);
+    });
+
+    it('flips availability back to online when a forwarded message arrives after the staleness watchdog fired', () => {
+      const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      // Silence period elapses → watchdog fires → offline.
+      jest.advanceTimersByTime(TIMEOUT + 1);
+      expect(publisher.publishAvailability).toHaveBeenLastCalledWith(idSite, false);
+
+      // A forwarded VRM message arrives after the silence → recovery.
+      emitForwarded(client);
+      expect(publisher.publishAvailability).toHaveBeenLastCalledWith(idSite, true);
+    });
+
+    it('does not flip to online on recovery for messages that do not touch the timer', () => {
+      const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      jest.advanceTimersByTime(TIMEOUT + 1);
+      expect(publisher.publishAvailability).toHaveBeenLastCalledWith(idSite, false);
+
+      // Unobserved message → no touch() → no online flip.
+      emitUnobserved(client);
+      expect(publisher.publishAvailability).toHaveBeenLastCalledWith(idSite, false);
+    });
+
     it('reconnect re-arms the timer', () => {
       const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
       // First staleness window: no messages → fires after TIMEOUT+1.
