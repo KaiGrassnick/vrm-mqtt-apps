@@ -16,8 +16,6 @@ views:
                 data: installations.online
                 align: center
                 modify: "x ? '🟢' : '🔴'"
-                footer_type: count
-                footer_modify: hass.states['sensor.vrm_installations_online'].state + ' / ' + hass.states['sensor.vrm_installations_total'].state
               - name: Installation
                 data: installations.name
                 align: left
@@ -75,6 +73,11 @@ views:
               tfoot tr td:first-child: "text-align: left;"
         column_span: 4
     badges:
+      - type: entity
+        show_name: false
+        show_state: true
+        show_icon: true
+        entity: sensor.vrm_installations_status
       - type: entity
         show_name: false
         show_state: true

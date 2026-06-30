@@ -50,6 +50,12 @@
       state: >-
         {{ states | selectattr('entity_id', 'match', '^sensor\.vrm_.+_custom_aggregate_ac_grid_power$') | rejectattr('state', 'eq', 'unavailable') | list | count }}
 
+    - name: VRM Installations
+      unique_id: vrm_installations_status
+      icon: mdi:check-network-outline
+      state: >-
+        {{ states('sensor.vrm_installations_online') ~ ' / ' ~ states('sensor.vrm_installations_total') ~ ' online' }}
+
     - name: VRM Installations SoC Average
       unique_id: vrm_installations_soc_avg
       device_class: battery
