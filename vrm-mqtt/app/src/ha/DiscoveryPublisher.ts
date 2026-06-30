@@ -123,6 +123,6 @@ export class DiscoveryPublisher {
       this.ha.publish(topic, '', true);
       cleared++;
     }
-    console.log(`[HA] Pruned ${cleared} stale retained topic(s) under vrm/${idSite}/`);
+    console.debug(`[HA] Pruned ${cleared} stale retained topic(s) under vrm/${idSite}/`);
   }
 }
