@@ -15,7 +15,7 @@ views:
               - name: Status
                 data: installations.online
                 align: center
-                modify: "x ? '🟢' : '🔴'"
+                modify: "x ? `<ha-icon icon='mdi:access-point' style='color: #4caf50'></ha-icon>` : `<ha-icon icon='mdi:alert-rhombus' style='color: #f44336'></ha-icon>`"
               - name: Installation
                 data: installations.name
                 align: left
