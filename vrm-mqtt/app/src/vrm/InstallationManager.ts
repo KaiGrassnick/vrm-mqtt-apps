@@ -10,7 +10,7 @@ export interface InstallationManagerOptions {
   apiToken: string;
   userEmail: string;
   ha: HaBrokerClient;
-  publisher: Pick<DiscoveryPublisher, 'removeInstallation' | 'publishAvailability' | 'publishInstallation'>;
+  publisher: Pick<DiscoveryPublisher, 'removeInstallation' | 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics'>;
   throttleIntervalMs?: number;
   disabledInstallationIds?: string[];
   installationStartupDelayMs?: number;
@@ -22,7 +22,7 @@ export class InstallationManager {
   /** Secondary index for O(1) idSite → connection lookups in routeHaCommand. */
   private readonly connectionsByIdSite = new Map<number, MqttBridgeConnection>();
   private readonly ha: HaBrokerClient;
-  private readonly publisher: Pick<DiscoveryPublisher, 'removeInstallation' | 'publishAvailability' | 'publishInstallation'>;
+  private readonly publisher: Pick<DiscoveryPublisher, 'removeInstallation' | 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics'>;
   private readonly throttleIntervalMs: number;
   private readonly disabledInstallationIds: ReadonlySet<string>;
   private readonly installationStartupDelayMs: number;

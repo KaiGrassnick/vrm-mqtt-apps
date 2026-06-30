@@ -73,7 +73,7 @@ export interface MqttBridgeConnectionOptions {
   installation: VrmInstallation;
   pool: VrmBrokerPool;
   ha: HaBrokerClient;
-  publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation'>;
+  publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics'>;
   /** Throttle flush interval in ms. 0 = bypass (publish every message directly). Default 500. */
   throttleIntervalMs?: number;
   /** Shared global throttle across all installations. If provided, throttleIntervalMs is ignored. */
@@ -87,7 +87,7 @@ export class MqttBridgeConnection {
   private client: MqttClient | null = null;
   private readonly pool: VrmBrokerPool;
   private readonly ha: HaBrokerClient;
-  private readonly publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation'>;
+  private readonly publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics'>;
   private readonly throttle: MessageThrottle | RollingMessageThrottle;
   private readonly getIdSite: (brokerPortalId: string) => number | undefined;
   private readonly subscribeTopics: string[];
@@ -202,6 +202,12 @@ export class MqttBridgeConnection {
 
     this.publisher.publishInstallation(this.installation.idSite, this.installation.name);
     this.publisher.publishAvailability(this.installation.idSite, true);
+    // Fire-and-forget cleanup of stale retained topics from prior runs whose
+    // entity defs are no longer in the forward set. Best-effort — failures
+    // are logged at the wire-up site, never raised into handleConnect.
+    this.publisher.pruneRetainedTopics(this.installation.idSite).catch((err) => {
+      console.error(`[HA] Prune failed for idSite=${this.installation.idSite}:`, err);
+    });
     this.sendKeepalive();
 
     if (this.keepaliveTimer !== null) clearInterval(this.keepaliveTimer);

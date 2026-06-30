@@ -45,8 +45,16 @@ function makeMockClient(connected = false): EventEmitter & { connected: boolean;
 function makeMockHa(): { publish: jest.Mock } {
   return { publish: jest.fn() };
 }
-function makeMockPublisher(): { publishAvailability: jest.Mock; publishInstallation: jest.Mock } {
-  return { publishAvailability: jest.fn(), publishInstallation: jest.fn() };
+function makeMockPublisher(): {
+  publishAvailability: jest.Mock;
+  publishInstallation: jest.Mock;
+  pruneRetainedTopics: jest.Mock;
+} {
+  return {
+    publishAvailability: jest.fn(),
+    publishInstallation: jest.fn(),
+    pruneRetainedTopics: jest.fn().mockResolvedValue(undefined),
+  };
 }
 
 function makeMockPool(client: MqttClient): {
@@ -825,6 +833,59 @@ describe('MqttBridgeConnection', () => {
         ([t]: [string]) => t === `vrm/${idSite}/system/0/Ac/Grid/L1/Power`,
       );
       expect(lphaseClear).toEqual([]);
+    });
+  });
+
+  describe('pruneRetainedTopics wire-up', () => {
+    it('calls publisher.pruneRetainedTopics(idSite) after connect', async () => {
+      const client = makeMockClient(false);
+      const pool = makeMockPool(client as unknown as MqttClient);
+      const publisher = makeMockPublisher();
+      const conn = new MqttBridgeConnection({
+        installation,
+        pool: pool as unknown as VrmBrokerPool,
+        ha: makeMockHa() as never,
+        publisher: publisher as never,
+      });
+      conn.start();
+      client.emit('connect');
+
+      // handleConnect fires synchronously, but prune call scheduling uses
+      // unhandled promise — let microtasks flush.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(publisher.pruneRetainedTopics).toHaveBeenCalledTimes(1);
+      expect(publisher.pruneRetainedTopics).toHaveBeenCalledWith(installation.idSite);
+    });
+
+    it('does not block sendKeepalive when prune rejects', async () => {
+      const client = makeMockClient(false);
+      const pool = makeMockPool(client as unknown as MqttClient);
+      const publisher = makeMockPublisher();
+      const err = new Error('broker scan failed');
+      // Silence the expected error log so the test output stays clean.
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      publisher.pruneRetainedTopics.mockRejectedValueOnce(err);
+
+      const conn = new MqttBridgeConnection({
+        installation,
+        pool: pool as unknown as VrmBrokerPool,
+        ha: makeMockHa() as never,
+        publisher: publisher as never,
+      });
+      conn.start();
+      client.emit('connect');
+
+      // sendKeepalive must fire its publish (broker heartbeat) regardless of
+      // the prune outcome.
+      expect(client.publish).toHaveBeenCalledWith(
+        expect.stringMatching(/^R\/.+\/keepalive$/),
+        expect.any(String),
+        expect.objectContaining({ qos: 0 }),
+        expect.any(Function),
+      );
+      errSpy.mockRestore();
     });
   });
 });
