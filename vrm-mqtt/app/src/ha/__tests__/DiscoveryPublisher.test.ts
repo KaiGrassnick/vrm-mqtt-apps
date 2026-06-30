@@ -295,7 +295,7 @@ describe('pruneRetainedTopics', () => {
   });
 
   it('logs the number of pruned topics', async () => {
-    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const spy = jest.spyOn(console, 'debug').mockImplementation(() => {});
     const { pub, ha } = publisher();
     seedRetained(ha, [`vrm/${ID_SITE}/system/0/A`, `vrm/${ID_SITE}/system/0/B`]);
     await pub.pruneRetainedTopics(ID_SITE);
