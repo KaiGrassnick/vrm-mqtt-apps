@@ -16,8 +16,8 @@ views:
                 data: installations.online
                 align: center
                 modify: "x ? '🟢' : '🔴'"
-                footer: >-
-                  {{ states('sensor.vrm_installations_online') }} / {{ states('sensor.vrm_installations_total') }}
+                footer_type: count
+                footer_modify: hass.states['sensor.vrm_installations_online'].state + ' / ' + hass.states['sensor.vrm_installations_total'].state
               - name: Installation
                 data: installations.name
                 align: left
