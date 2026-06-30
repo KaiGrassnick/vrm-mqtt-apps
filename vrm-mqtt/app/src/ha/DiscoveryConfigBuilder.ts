@@ -134,7 +134,7 @@ function makeUniqueId(idSite: number, service: string, instance: string | number
   return `vrm_${idSite}_${service}_${instance}_${pathSlug(path)}`;
 }
 
-function makeStateTopic(idSite: number, service: string, instance: string | number, path: string): string {
+export function makeStateTopic(idSite: number, service: string, instance: string | number, path: string): string {
   return `vrm/${idSite}/${service}/${instance}/${path}`;
 }
 
