@@ -1,4 +1,5 @@
 import { SERVICE_ENTITY_DEFS, CUSTOM_ENTITY_DEFS } from './entityDefs';
+import { makeStateTopic } from './DiscoveryConfigBuilder';
 
 /**
  * L-phase indices that `{n}` expands to when computing VRM-side topic paths.
@@ -67,4 +68,38 @@ export function getObservedPaths(): string[] {
 
   const union = new Set<string>([...forwardPaths, ...aggregateSources]);
   return [...union].sort();
+}
+
+/**
+ * Return the set of full HA-side topics the bridge currently publishes under
+ * `vrm/{idSite}/#`. Derived from `SERVICE_ENTITY_DEFS` + `CUSTOM_ENTITY_DEFS`
+ * — same source of truth as discovery generation in `DiscoveryConfigBuilder`.
+ *
+ * Topic construction:
+ *   - `vrm/{idSite}/availability`                       (always)
+ *   - `vrm/{idSite}/system/0/{path}`                    (per forward: true entity,
+ *                                                       `{n}` expanded to 1, 2, 3)
+ *   - `vrm/{idSite}/custom/aggregate/{path}`            (per forward: true aggregate;
+ *                                                       `path` is literal)
+ *
+ * Only `system/0` is bridged today; if additional services / instances are
+ * bridged in future, extend the per-service loop accordingly.
+ */
+export function getCurrentlyForwardedTopics(idSite: number): Set<string> {
+  const topics = new Set<string>();
+  topics.add(`vrm/${idSite}/availability`);
+
+  for (const def of SERVICE_ENTITY_DEFS.system ?? []) {
+    if (!def.forward) continue;
+    for (const expanded of expandTemplate(def.path)) {
+      topics.add(makeStateTopic(idSite, 'system', 0, expanded));
+    }
+  }
+
+  for (const agg of CUSTOM_ENTITY_DEFS.aggregate) {
+    if (!agg.forward) continue;
+    topics.add(`vrm/${idSite}/custom/aggregate/${agg.path}`);
+  }
+
+  return topics;
 }
