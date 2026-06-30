@@ -868,24 +868,41 @@ describe('MqttBridgeConnection', () => {
       const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       publisher.pruneRetainedTopics.mockRejectedValueOnce(err);
 
-      const conn = new MqttBridgeConnection({
-        installation,
-        pool: pool as unknown as VrmBrokerPool,
-        ha: makeMockHa() as never,
-        publisher: publisher as never,
-      });
-      conn.start();
-      client.emit('connect');
+      try {
+        const conn = new MqttBridgeConnection({
+          installation,
+          pool: pool as unknown as VrmBrokerPool,
+          ha: makeMockHa() as never,
+          publisher: publisher as never,
+        });
+        conn.start();
+        client.emit('connect');
 
-      // sendKeepalive must fire its publish (broker heartbeat) regardless of
-      // the prune outcome.
-      expect(client.publish).toHaveBeenCalledWith(
-        expect.stringMatching(/^R\/.+\/keepalive$/),
-        expect.any(String),
-        expect.objectContaining({ qos: 0 }),
-        expect.any(Function),
-      );
-      errSpy.mockRestore();
+        // Drain microtasks so the .catch handler has run before we assert on it.
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // (a) The wire-up's .catch handler must have logged the failure.
+        // Asserting this proves the catch is still attached — a future
+        // maintainer who drops the .catch would surface an unhandled
+        // rejection AND fail this assertion.
+        expect(errSpy).toHaveBeenCalledWith(
+          expect.stringMatching(/\[HA\] Prune failed for idSite=1/),
+          err,
+        );
+
+        // (b) sendKeepalive must still fire its publish (broker heartbeat)
+        // regardless of the prune outcome.
+        expect(client.publish).toHaveBeenCalledWith(
+          expect.stringMatching(/^R\/.+\/keepalive$/),
+          expect.any(String),
+          expect.objectContaining({ qos: 0 }),
+          expect.any(Function),
+        );
+      } finally {
+        // Restore in finally so the spy is removed even if an assertion fails.
+        errSpy.mockRestore();
+      }
     });
   });
 });
