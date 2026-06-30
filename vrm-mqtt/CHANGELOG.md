@@ -1,4 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.14
+- Mark installations offline after a configurable period of silence (default 5 minutes). Adds the `vrm_offline_timeout_ms` add-on option (env var `VRM_OFFLINE_TIMEOUT_MS`); `0` disables the feature.
+
 ## 0.1.13
 - automatically remove stale topics on startup
 - adjust logging

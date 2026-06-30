@@ -21,9 +21,11 @@
             {% set gens  = states('sensor.' ~ id ~ '_custom_aggregate_ac_genset_power')           | float(0) %}
             {% set load  = states('sensor.' ~ id ~ '_custom_aggregate_ac_consumption_power')      | float(0) %}
             {% set name  = device_attr(eid, 'name') or portal %}
+            {% set online = is_state('sensor.' ~ id ~ '_custom_aggregate_ac_grid_power', 'unavailable') == false %}
             {% set ns.items = ns.items + [{
               'id':               eid,
               'name':             name,
+              'online':           online,
               'soc':              soc,
               'battery_voltage':  battery_voltage,
               'pv':               pv,

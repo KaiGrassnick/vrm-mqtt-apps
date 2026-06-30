@@ -39,6 +39,8 @@ export interface AppConfig {
     disabledInstallationIds: string[];
     /** Delay between starting each installation's VRM MQTT connection on startup/reconcile, in ms. */
     installationStartupDelayMs: number;
+    /** Per-installation staleness timeout in ms. 0 = disable. Default 300_000. */
+    offlineTimeoutMs: number;
   };
   mqtt: {
     host: string;
@@ -60,6 +62,7 @@ export function loadConfig(): AppConfig {
       pollIntervalMs: optionalEnvInt('VRM_POLL_INTERVAL_MS', 300_000),
       disabledInstallationIds: optionalEnvStringList('VRM_DISABLED_INSTALLATION_IDS'),
       installationStartupDelayMs: optionalEnvInt('VRM_INSTALLATION_STARTUP_DELAY_MS', 500),
+      offlineTimeoutMs: optionalEnvInt('VRM_OFFLINE_TIMEOUT_MS', 300_000),
     },
     mqtt: {
       host: optionalEnv('HA_MQTT_HOST', 'addon_core_mosquitto'),

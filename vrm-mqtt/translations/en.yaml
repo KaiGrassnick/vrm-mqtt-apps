@@ -26,6 +26,12 @@ configuration:
     description: >-
       Global flush interval for cross-installation message coalescing.
       Set to 0 to disable throttling.
+  vrm_offline_timeout_ms:
+    name: Offline timeout (ms)
+    description: >-
+      If an installation produces no Home Assistant publish for this many
+      milliseconds, it is marked offline on vrm/<id>/availability.
+      Set to 0 to disable.
   ha_mqtt_host:
     name: MQTT host
     description: >-

@@ -14,6 +14,8 @@ export interface InstallationManagerOptions {
   throttleIntervalMs?: number;
   disabledInstallationIds?: string[];
   installationStartupDelayMs?: number;
+  /** Staleness timeout in ms. 0 = disable. Default 300_000. */
+  offlineTimeoutMs?: number;
 }
 
 export class InstallationManager {
@@ -26,17 +28,19 @@ export class InstallationManager {
   private readonly throttleIntervalMs: number;
   private readonly disabledInstallationIds: ReadonlySet<string>;
   private readonly installationStartupDelayMs: number;
+  private readonly offlineTimeoutMs: number;
   private readonly globalThrottle: RollingMessageThrottle;
   // Starts true so connections are queued until HA's first 'connect' event
   // triggers resume(). Prevents wasted VRM subscriptions when HA is unreachable.
   private suspended = true;
 
-  constructor({ apiToken, userEmail, ha, publisher, throttleIntervalMs = 500, disabledInstallationIds = [], installationStartupDelayMs = 500 }: InstallationManagerOptions) {
+  constructor({ apiToken, userEmail, ha, publisher, throttleIntervalMs = 500, disabledInstallationIds = [], installationStartupDelayMs = 500, offlineTimeoutMs = 300_000 }: InstallationManagerOptions) {
     this.ha = ha;
     this.publisher = publisher;
     this.throttleIntervalMs = throttleIntervalMs;
     this.disabledInstallationIds = new Set(disabledInstallationIds);
     this.installationStartupDelayMs = installationStartupDelayMs;
+    this.offlineTimeoutMs = offlineTimeoutMs;
     this.globalThrottle = new RollingMessageThrottle(throttleIntervalMs, (topic, payload) => ha.publish(topic, payload));
     this.pool = new VrmBrokerPool({
       username: userEmail,
@@ -92,6 +96,7 @@ export class InstallationManager {
           ha: this.ha,
           publisher: this.publisher,
           globalThrottle: this.globalThrottle,
+          offlineTimeoutMs: this.offlineTimeoutMs,
           getIdSite: (brokerPortalId): number | undefined =>
             brokerPortalId === installation.brokerPortalId ? installation.idSite : undefined,
         });

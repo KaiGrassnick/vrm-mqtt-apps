@@ -88,4 +88,28 @@ describe('loadConfig', () => {
     expect(cfg.mqtt.username).toBe('');
     expect(cfg.mqtt.password).toBe('');
   });
+
+  it('defaults offlineTimeoutMs to 300000', () => {
+    process.env = { VRM_API_TOKEN: 'tok' };
+    const { loadConfig } = reloadConfig();
+    expect(loadConfig().vrm.offlineTimeoutMs).toBe(300_000);
+  });
+
+  it('parses VRM_OFFLINE_TIMEOUT_MS as integer', () => {
+    process.env = { ...ORIGINAL_ENV, VRM_API_TOKEN: 'tok', VRM_OFFLINE_TIMEOUT_MS: '60000' };
+    const { loadConfig } = reloadConfig();
+    expect(loadConfig().vrm.offlineTimeoutMs).toBe(60_000);
+  });
+
+  it('accepts VRM_OFFLINE_TIMEOUT_MS=0 to disable', () => {
+    process.env = { ...ORIGINAL_ENV, VRM_API_TOKEN: 'tok', VRM_OFFLINE_TIMEOUT_MS: '0' };
+    const { loadConfig } = reloadConfig();
+    expect(loadConfig().vrm.offlineTimeoutMs).toBe(0);
+  });
+
+  it('throws on non-integer VRM_OFFLINE_TIMEOUT_MS', () => {
+    process.env = { ...ORIGINAL_ENV, VRM_API_TOKEN: 'tok', VRM_OFFLINE_TIMEOUT_MS: 'fast' };
+    const { loadConfig } = reloadConfig();
+    expect(() => loadConfig()).toThrow(/VRM_OFFLINE_TIMEOUT_MS.*integer/);
+  });
 });
