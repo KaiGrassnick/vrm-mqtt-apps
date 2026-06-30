@@ -1,4 +1,8 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.13
+- automatically remove stale topics on startup
+- adjust logging
+
 ## 0.1.12
 - add custom aggregates
 - introduce forward flag

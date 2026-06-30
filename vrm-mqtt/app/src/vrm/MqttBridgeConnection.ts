@@ -196,7 +196,7 @@ export class MqttBridgeConnection {
       if (err) {
         console.error(`[MQTT] Subscribe failed for ${this.installation.identifier}: ${err.message}`);
       } else {
-        console.log(`[MQTT] Subscribed ${this.subscribeTopics.length} topics for ${this.installation.identifier}`);
+        console.debug(`[MQTT] Subscribed ${this.subscribeTopics.length} topics for ${this.installation.identifier}`);
       }
     });
 

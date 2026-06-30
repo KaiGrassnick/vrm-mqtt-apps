@@ -20,49 +20,82 @@ views:
               - name: SoC
                 data: installations.soc
                 align: right
-                suffix: ' %'
+                suffix: " %"
                 modify: Math.round(x)
                 footer_type: average
                 footer_modify: Math.round(x)
               - name: Battery Voltage
                 data: installations.battery_voltage
                 align: right
-                suffix: ' V'
+                suffix: " V"
                 modify: parseFloat(x).toFixed(2)
                 footer_type: average
                 footer_modify: parseFloat(x).toFixed(2)
               - name: Solar
                 data: installations.pv
                 align: right
-                suffix: ' W'
+                suffix: " W"
                 modify: Math.round(x)
                 footer_type: sum
               - name: Netz
                 data: installations.grid
                 align: right
-                suffix: ' W'
+                suffix: " W"
                 modify: Math.round(x)
                 footer_type: sum
               - name: Last
                 data: installations.load
                 align: right
-                suffix: ' W'
+                suffix: " W"
                 modify: Math.round(x)
                 footer_type: sum
               - name: Generator
                 data: installations.genset
                 align: right
-                suffix: ' W'
+                suffix: " W"
                 modify: Math.round(x)
                 footer_type: sum
             css:
-              table: 'display: grid;'
-              thead, tbody, tfoot: 'display: contents;'
-              tr: 'display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr 1fr;'
-              thead tr: 'order: 1; margin-bottom: 4px;'
-              tbody tr: 'order: 3;'
+              table: "display: grid;"
+              thead, tbody, tfoot: "display: contents;"
+              tr: >-
+                display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr
+                1fr;
+              thead tr: "order: 1; margin-bottom: 4px;"
+              tbody tr: "order: 3;"
               tfoot tr: >-
                 order: 2; background-color: rgba(125, 125, 125, 0.4);
                 font-weight: 600; border-style: none;
-              tfoot tr td:first-child: 'text-align: left;'
+              tfoot tr td:first-child: "text-align: left;"
         column_span: 4
+    badges:
+      - type: entity
+        show_name: false
+        show_state: true
+        show_icon: true
+        entity: sensor.vrm_installations_soc_average
+      - type: entity
+        show_name: false
+        show_state: true
+        show_icon: true
+        entity: sensor.vrm_installations_battery_voltage_average
+      - type: entity
+        show_name: false
+        show_state: true
+        show_icon: true
+        entity: sensor.vrm_installations_pv_power
+      - type: entity
+        show_name: false
+        show_state: true
+        show_icon: true
+        entity: sensor.vrm_installations_grid_power
+      - type: entity
+        show_name: false
+        show_state: true
+        show_icon: true
+        entity: sensor.vrm_installations_load_power
+      - type: entity
+        show_name: false
+        show_state: true
+        show_icon: true
+        entity: sensor.vrm_installations_genset_power

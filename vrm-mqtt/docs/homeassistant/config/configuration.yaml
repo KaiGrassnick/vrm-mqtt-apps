@@ -2,7 +2,5 @@ recorder:
   exclude:
     entities:
       - sensor.vrm_installations
-    entity_globs:
-      - sensor.vrm_*
 
 template: !include_dir_merge_list templates/
