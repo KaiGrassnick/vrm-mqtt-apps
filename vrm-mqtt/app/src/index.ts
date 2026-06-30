@@ -75,6 +75,7 @@ async function main(): Promise<void> {
     throttleIntervalMs: config.throttle.intervalMs,
     disabledInstallationIds: config.vrm.disabledInstallationIds,
     installationStartupDelayMs: config.vrm.installationStartupDelayMs,
+    offlineTimeoutMs: config.vrm.offlineTimeoutMs,
   });
 
   ha.onConnect = (): void => { manager.resume(); };

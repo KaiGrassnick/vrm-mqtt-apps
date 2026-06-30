@@ -164,6 +164,25 @@ describe('InstallationManager', () => {
     });
   });
 
+  describe('offlineTimeoutMs propagation', () => {
+    it('forwards the offlineTimeoutMs option to every new MqttBridgeConnection', async () => {
+      const manager = new InstallationManager({ ...opts, offlineTimeoutMs: 12345 });
+      await manager.reconcile([makeInstallation(1), makeInstallation(2)]);
+      expect(MockedConn).toHaveBeenCalledTimes(2);
+      for (const call of MockedConn.mock.calls) {
+        const arg = call[0] as { offlineTimeoutMs?: number };
+        expect(arg.offlineTimeoutMs).toBe(12345);
+      }
+    });
+
+    it('defaults offlineTimeoutMs to 300000 when not provided', async () => {
+      const manager = new InstallationManager(opts);
+      await manager.reconcile([makeInstallation(1)]);
+      const arg = MockedConn.mock.calls[0][0] as { offlineTimeoutMs?: number };
+      expect(arg.offlineTimeoutMs).toBe(300_000);
+    });
+  });
+
   describe('shutdown', () => {
     it('stops all connections and destroys the pool', async () => {
       const manager = new InstallationManager(opts);
