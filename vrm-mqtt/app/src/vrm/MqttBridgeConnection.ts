@@ -80,6 +80,8 @@ export interface MqttBridgeConnectionOptions {
   globalThrottle?: RollingMessageThrottle;
   /** brokerPortalId → idSite lookup; undefined means "drop the message". */
   getIdSite?: (brokerPortalId: string) => number | undefined;
+  /** Staleness timeout in ms. 0 = disable. Default 300_000. */
+  offlineTimeoutMs?: number;
 }
 
 export class MqttBridgeConnection {
@@ -97,7 +99,9 @@ export class MqttBridgeConnection {
    *  Built once at construction from SERVICE_ENTITY_DEFS + CUSTOM_ENTITY_DEFS.
    *  Only paths with forward: true end up here. */
   private readonly forwardPaths: ReadonlySet<string>;
+  private readonly offlineTimeoutMs: number;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  private staleTimer: ReturnType<typeof setTimeout> | null = null;
   private isFirstKeepalive = true;
   /** HA-side topics this connection has forwarded; cleared on stop() so the broker
    *  doesn't keep the old installation's last value retained. */
@@ -110,7 +114,7 @@ export class MqttBridgeConnection {
   private readonly boundHandleOffline: () => void;
   private readonly boundHandleReconnect: () => void;
 
-  constructor({ installation, pool, ha, publisher, throttleIntervalMs = 500, globalThrottle, getIdSite }: MqttBridgeConnectionOptions) {
+  constructor({ installation, pool, ha, publisher, throttleIntervalMs = 500, globalThrottle, getIdSite, offlineTimeoutMs = 300_000 }: MqttBridgeConnectionOptions) {
     this.ha = ha;
     this.publisher = publisher;
     this.installation = installation;
@@ -121,6 +125,7 @@ export class MqttBridgeConnection {
     this.getIdSite = getIdSite ?? ((): undefined => undefined);
     this.aggregator = this.buildAggregator();
     this.forwardPaths = computeForwardPaths();
+    this.offlineTimeoutMs = offlineTimeoutMs;
 
     this.boundHandleConnect = (): void => { this.handleConnect(); };
     this.boundHandleMessage = (topic, payload): void => { this.handleMessage(topic, payload); };
@@ -152,6 +157,10 @@ export class MqttBridgeConnection {
     if (this.keepaliveTimer !== null) {
       clearInterval(this.keepaliveTimer);
       this.keepaliveTimer = null;
+    }
+    if (this.staleTimer !== null) {
+      clearTimeout(this.staleTimer);
+      this.staleTimer = null;
     }
     this.throttle.flush();
 
@@ -202,6 +211,7 @@ export class MqttBridgeConnection {
 
     this.publisher.publishInstallation(this.installation.idSite, this.installation.name);
     this.publisher.publishAvailability(this.installation.idSite, true);
+    this.touch();
     // Fire-and-forget cleanup of stale retained topics from prior runs whose
     // entity defs are no longer in the forward set. Best-effort — failures
     // are logged at the wire-up site, never raised into handleConnect.
@@ -224,6 +234,16 @@ export class MqttBridgeConnection {
         console.error(`[MQTT] Keepalive failed for ${this.installation.identifier}: ${err.message}`);
       }
     });
+  }
+
+  private touch(): void {
+    if (this.offlineTimeoutMs <= 0) return;
+    if (this.staleTimer !== null) clearTimeout(this.staleTimer);
+    this.staleTimer = setTimeout(() => {
+      this.staleTimer = null;
+      console.log(`[MQTT] ${this.installation.name} (${this.installation.identifier}) stale — no updates for ${this.offlineTimeoutMs}ms`);
+      this.publisher.publishAvailability(this.installation.idSite, false);
+    }, this.offlineTimeoutMs);
   }
 
   publishToVrm(topic: string, payload: string): void {
@@ -270,6 +290,8 @@ export class MqttBridgeConnection {
         this.throttle.enqueue(msg.topic, msg.payload);
       }
     }
+
+    this.touch();
   }
 
   /**
@@ -316,6 +338,10 @@ export class MqttBridgeConnection {
     if (this.keepaliveTimer !== null) {
       clearInterval(this.keepaliveTimer);
       this.keepaliveTimer = null;
+    }
+    if (this.staleTimer !== null) {
+      clearTimeout(this.staleTimer);
+      this.staleTimer = null;
     }
     this.throttle.flush();
     this.publisher.publishAvailability(this.installation.idSite, false);

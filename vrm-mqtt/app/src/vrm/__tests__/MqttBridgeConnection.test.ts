@@ -381,6 +381,139 @@ describe('MqttBridgeConnection', () => {
     });
   });
 
+  describe('staleness watchdog', () => {
+    const portalId = installation.brokerPortalId;
+    const idSite = installation.idSite;
+    const TIMEOUT = 1000;
+
+    function makeConn(opts: { offlineTimeoutMs: number; connected?: boolean }): {
+      client: ReturnType<typeof makeMockClient>;
+      publisher: ReturnType<typeof makeMockPublisher>;
+      conn: MqttBridgeConnection;
+    } {
+      const client = makeMockClient(opts.connected ?? false);
+      const publisher = makeMockPublisher();
+      const conn = new MqttBridgeConnection({
+        installation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: makeMockHa() as never,
+        publisher: publisher as never,
+        getIdSite: idSiteFor(installation),
+        offlineTimeoutMs: opts.offlineTimeoutMs,
+      });
+      conn.start();
+      if (opts.connected ?? false) {
+        // already-connected client triggers handleConnect on start() (line 146-148)
+      } else {
+        client.emit('connect');
+      }
+      return { client, publisher, conn };
+    }
+
+    function emitForwarded(client: ReturnType<typeof makeMockClient>): void {
+      // Dc/Battery/Soc is in the forward set (SERVICE_ENTITY_DEFS.system).
+      client.emit('message', `N/${portalId}/system/0/Dc/Battery/Soc`, Buffer.from('{"value":80}'));
+    }
+
+    function emitUnobserved(client: ReturnType<typeof makeMockClient>): void {
+      // Not in forwardPaths and not an aggregate source — observed but not forwarded.
+      client.emit('message', `N/${portalId}/system/0/Some/Unobserved/Path`, Buffer.from('{"value":1}'));
+    }
+
+    function emitAggregateSource(client: ReturnType<typeof makeMockClient>): void {
+      // Dc/Pv/Power is one of the aggregate sources for CUSTOM_ENTITY_DEFS.aggregate's
+      // Pv/Power rule. Emitting it triggers the aggregator to fire, which exercises
+      // handleMessage's touch() path through the aggregate branch.
+      client.emit('message', `N/${portalId}/system/0/Dc/Pv/Power`, Buffer.from('{"value":100}'));
+    }
+
+    it('marks installation offline after the configured silence', () => {
+      const { publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      jest.advanceTimersByTime(TIMEOUT + 1);
+      expect(publisher.publishAvailability).toHaveBeenCalledWith(idSite, false);
+    });
+
+    it('does not mark offline while forwarded messages keep arriving', () => {
+      const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      jest.advanceTimersByTime(TIMEOUT - 1);
+      emitForwarded(client);
+      jest.advanceTimersByTime(TIMEOUT - 1);
+      emitForwarded(client);
+      jest.advanceTimersByTime(TIMEOUT - 1);
+      const offlineCalls = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
+        ([_id, online]: [number, boolean]) => online === false,
+      );
+      expect(offlineCalls).toHaveLength(0);
+    });
+
+    it('unobserved paths do not reset the timer', () => {
+      const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      emitUnobserved(client);
+      jest.advanceTimersByTime(TIMEOUT + 1);
+      expect(publisher.publishAvailability).toHaveBeenCalledWith(idSite, false);
+    });
+
+    it('aggregate output resets the timer', () => {
+      const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      // Sanity: the aggregate source path is observed.
+      emitAggregateSource(client);
+      jest.advanceTimersByTime(TIMEOUT - 1);
+      // If the aggregate fired (publishedStateTopics grew), the timer reset.
+      const offlineCalls = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
+        ([_id, online]: [number, boolean]) => online === false,
+      );
+      expect(offlineCalls).toHaveLength(0);
+    });
+
+    it('handleOffline clears the timer (no double offline publish)', () => {
+      const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      jest.advanceTimersByTime(TIMEOUT / 2);
+      client.emit('offline');
+      const callsAtOffline = (publisher.publishAvailability as jest.Mock).mock.calls.length;
+      jest.advanceTimersByTime(TIMEOUT * 3);
+      expect((publisher.publishAvailability as jest.Mock).mock.calls.length).toBe(callsAtOffline);
+    });
+
+    it('stop() clears the timer', async () => {
+      const { conn, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      jest.advanceTimersByTime(TIMEOUT / 2);
+      const callsBeforeStop = (publisher.publishAvailability as jest.Mock).mock.calls.length;
+      await conn.stop();
+      jest.advanceTimersByTime(TIMEOUT * 3);
+      expect((publisher.publishAvailability as jest.Mock).mock.calls.length).toBe(callsBeforeStop);
+    });
+
+    it('offlineTimeoutMs=0 disables the watchdog', () => {
+      const { publisher } = makeConn({ offlineTimeoutMs: 0 });
+      jest.advanceTimersByTime(60 * 60 * 1000);
+      const offlineCalls = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
+        ([_id, online]: [number, boolean]) => online === false,
+      );
+      expect(offlineCalls).toHaveLength(0);
+    });
+
+    it('reconnect re-arms the timer', () => {
+      const { client, publisher } = makeConn({ offlineTimeoutMs: TIMEOUT });
+      // First staleness window: no messages → fires after TIMEOUT+1.
+      jest.advanceTimersByTime(TIMEOUT + 1);
+      expect(publisher.publishAvailability).toHaveBeenCalledWith(idSite, false);
+      // Reconnect: handleConnect re-arms the timer.
+      client.emit('connect');
+      jest.advanceTimersByTime(TIMEOUT - 1);
+      const offlineCallsAfterReconnect = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
+        ([_id, online]: [number, boolean]) => online === false,
+      );
+      // Still exactly 1 offline call (the first one). The post-reconnect window hasn't elapsed.
+      expect(offlineCallsAfterReconnect).toHaveLength(1);
+      jest.advanceTimersByTime(2);
+      const offlineCallsAfterFire = (publisher.publishAvailability as jest.Mock).mock.calls.filter(
+        ([_id, online]: [number, boolean]) => online === false,
+      );
+      // Second staleness window elapsed: timer fires again.
+      expect(offlineCallsAfterFire).toHaveLength(2);
+    });
+  });
+
   describe('throttle behaviour', () => {
     const portalId = installation.brokerPortalId;
     const idSite = installation.idSite;
