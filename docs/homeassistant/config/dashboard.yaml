@@ -12,10 +12,12 @@ views:
             sort_by: installations.name+
             display_footer: true
             columns:
-              - name: ''
+              - name: 'Status'
                 data: installations.online
                 align: center
                 modify: "x ? '🟢' : '🔴'"
+                footer: >-
+                  {{ states('sensor.vrm_installations_online') }} / {{ states('sensor.vrm_installations_total') }}
               - name: Installation
                 data: installations.name
                 align: left
