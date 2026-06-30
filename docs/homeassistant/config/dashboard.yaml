@@ -63,8 +63,7 @@ views:
               table: "display: grid;"
               thead, tbody, tfoot: "display: contents;"
               tr: >-
-                display: grid; grid-template-columns: 0.3fr 2fr 1fr 1fr 1fr 1fr
-                1fr 1fr 1fr;
+                display: grid; grid-template-columns: 0.3fr 2fr 1fr 1fr 1fr 1fr 1fr 1fr;
               thead tr: "order: 1; margin-bottom: 4px;"
               tbody tr: "order: 3;"
               tfoot tr: >-
