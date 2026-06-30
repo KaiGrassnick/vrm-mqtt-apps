@@ -1,4 +1,5 @@
 import type { HaBrokerClient } from './HaBrokerClient';
+import { getCurrentlyForwardedTopics } from './observedPaths';
 import { buildInstallationDiscovery } from './InstallationDevice';
 
 interface PublishedInstallation {
@@ -96,5 +97,32 @@ export class DiscoveryPublisher {
     };
 
     publishBatch(0);
+  }
+
+  /**
+   * Scan the broker for retained topics under `vrm/{idSite}/#` and clear any
+   * that are not currently forwarded by the bridge. Idempotent — after the
+   * first successful run, the broker returns zero stale topics and the call
+   * is a no-op. Best-effort — no error path raises out of the method.
+   *
+   * `availability` and live `/set` writes (the bridge subscribes to `vrm/#`
+   * and may surface `/set` messages during the 300ms collect window) are
+   * skipped defensively; the keep set is derived from
+   * `getCurrentlyForwardedTopics`.
+   */
+  async pruneRetainedTopics(idSite: number): Promise<void> {
+    const keep = getCurrentlyForwardedTopics(idSite);
+    const prefix = `vrm/${idSite}/`;
+    const retained = await this.ha.collectRetained(`${prefix}#`, 300);
+
+    let cleared = 0;
+    for (const { topic } of retained) {
+      if (!topic.startsWith(prefix)) continue;
+      if (topic.endsWith('/set')) continue;
+      if (keep.has(topic)) continue;
+      this.ha.publish(topic, '', true);
+      cleared++;
+    }
+    console.log(`[HA] Pruned ${cleared} stale retained topic(s) under vrm/${idSite}/`);
   }
 }

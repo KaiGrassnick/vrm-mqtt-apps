@@ -219,3 +219,91 @@ describe('onHaBirth', () => {
     expect(ha.publish).not.toHaveBeenCalled();
   });
 });
+
+// ── pruneRetainedTopics ──────────────────────────────────────────────────────
+
+describe('pruneRetainedTopics', () => {
+  const KEEP_TOPIC = `vrm/${ID_SITE}/system/0/Dc/Battery/Soc`;
+  const STALE_TOPIC = `vrm/${ID_SITE}/system/0/Ac/Sample`;
+  const AVAIL_TOPIC = `vrm/${ID_SITE}/availability`;
+  const SET_TOPIC = `vrm/${ID_SITE}/system/0/Dc/Battery/Soc/set`;
+  const SIBLING_TOPIC = `vrm/${ID_SITE + 1}/system/0/Dc/Battery/Soc`;
+
+  function seedRetained(
+    ha: jest.Mocked<Pick<HaBrokerClient, 'publish' | 'collectRetained'>>,
+    topics: string[],
+  ): void {
+    ha.collectRetained.mockResolvedValueOnce(
+      topics.map(t => ({ topic: t, payload: '{"value":42}' })),
+    );
+  }
+
+  it('clears only the stale retained topics (not in keep set)', async () => {
+    const { pub, ha } = publisher();
+    seedRetained(ha, [KEEP_TOPIC, STALE_TOPIC]);
+    await pub.pruneRetainedTopics(ID_SITE);
+
+    expect(ha.publish).toHaveBeenCalledTimes(1);
+    expect(ha.publish).toHaveBeenCalledWith(STALE_TOPIC, '', true);
+  });
+
+  it('skips the availability topic even when the broker surfaces it', async () => {
+    const { pub, ha } = publisher();
+    seedRetained(ha, [AVAIL_TOPIC]);
+    await pub.pruneRetainedTopics(ID_SITE);
+
+    expect(ha.publish).not.toHaveBeenCalled();
+  });
+
+  it('skips /set topics (live command writes during collect window)', async () => {
+    const { pub, ha } = publisher();
+    seedRetained(ha, [SET_TOPIC]);
+    await pub.pruneRetainedTopics(ID_SITE);
+
+    expect(ha.publish).not.toHaveBeenCalled();
+  });
+
+  it('skips topics that belong to a different idSite (defensive)', async () => {
+    const { pub, ha } = publisher();
+    seedRetained(ha, [SIBLING_TOPIC]);
+    await pub.pruneRetainedTopics(ID_SITE);
+
+    expect(ha.publish).not.toHaveBeenCalled();
+  });
+
+  it('clears every stale topic when there are many', async () => {
+    const { pub, ha } = publisher();
+    seedRetained(ha, [
+      KEEP_TOPIC,
+      `vrm/${ID_SITE}/system/0/Ac/Whatever`,
+      `vrm/${ID_SITE}/system/0/Old/Removed/Path`,
+    ]);
+    await pub.pruneRetainedTopics(ID_SITE);
+
+    const cleared = (ha.publish as jest.Mock).mock.calls.map(([t]: [string]) => t);
+    expect(cleared).toEqual([
+      `vrm/${ID_SITE}/system/0/Ac/Whatever`,
+      `vrm/${ID_SITE}/system/0/Old/Removed/Path`,
+    ]);
+  });
+
+  it('is a no-op when the broker returns no retained topics', async () => {
+    const { pub, ha } = publisher();
+    seedRetained(ha, []);
+    await pub.pruneRetainedTopics(ID_SITE);
+
+    expect(ha.publish).not.toHaveBeenCalled();
+  });
+
+  it('logs the number of pruned topics', async () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const { pub, ha } = publisher();
+    seedRetained(ha, [`vrm/${ID_SITE}/system/0/A`, `vrm/${ID_SITE}/system/0/B`]);
+    await pub.pruneRetainedTopics(ID_SITE);
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringMatching(/Pruned 2 stale retained topic\(s\) under vrm\/12345\//),
+    );
+    spy.mockRestore();
+  });
+});
