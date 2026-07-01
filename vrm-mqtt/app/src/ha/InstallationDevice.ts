@@ -25,9 +25,10 @@ export function buildInstallationDiscovery(
   installationName: string,
   appVersion: string,
 ): HaDeviceDiscoveryPayload {
+  const systemPaths = getObservedPaths().find(s => s.service === 'system')?.paths ?? [];
   const configs = buildDiscoveryConfigs(
     idSite, 'system', 0,
-    getObservedPaths(),
+    systemPaths,
     CUSTOM_ENTITY_DEFS.aggregate,
   );
 

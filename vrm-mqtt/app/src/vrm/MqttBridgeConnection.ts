@@ -197,7 +197,13 @@ export class MqttBridgeConnection {
 
   private buildSubscribeTopics(): string[] {
     const id = this.installation.brokerPortalId;
-    return getObservedPaths().map((path) => `N/${id}/system/0/${path}`);
+    const topics: string[] = [];
+    for (const { service, instanceSegment, paths } of getObservedPaths()) {
+      for (const path of paths) {
+        topics.push(`N/${id}/${service}/${instanceSegment}/${path}`);
+      }
+    }
+    return topics;
   }
 
   private handleConnect(): void {
