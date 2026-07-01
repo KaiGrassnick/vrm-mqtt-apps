@@ -1,10 +1,11 @@
+import { SERVICE_ENTITY_DEFS } from '../entityDefs';
 import { getCurrentlyForwardedTopics, getObservedPaths } from '../observedPaths';
 
 describe('getObservedPaths', () => {
   it('returns one entry per service present in SERVICE_ENTITY_DEFS', () => {
     const result = getObservedPaths();
     const services = result.map(s => s.service).sort();
-    expect(services).toEqual(['platform', 'system', 'vebus']);
+    expect(services).toEqual(Object.keys(SERVICE_ENTITY_DEFS).sort());
   });
 
   it('system and platform use instanceSegment "0"', () => {

@@ -1294,7 +1294,6 @@ describe('MqttBridgeConnection', () => {
 
   describe('instance-driven discovery refresh (end-to-end)', () => {
     const portalId = installation.brokerPortalId;
-    const idSite = installation.idSite;
 
     it('schedules a discovery refresh when a genuinely new (service, instance) is observed', () => {
       const client = makeMockClient(true);
