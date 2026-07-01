@@ -272,6 +272,35 @@ describe('MqttBridgeConnection', () => {
     });
   });
 
+  describe('forward-path collision safety', () => {
+    const portalId = installation.brokerPortalId;
+    const idSite = installation.idSite;
+
+    it("forwarding is scoped per-service: a message for vebus/0/Dc/Battery/Soc (system's forward path, but on vebus) is not forwarded", () => {
+      const client = makeMockClient(true);
+      const ha = makeMockHa();
+      const conn = new MqttBridgeConnection({
+        installation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: ha as never,
+        publisher: makeMockPublisher() as never,
+        getIdSite: idSiteFor(installation),
+      });
+      conn.start();
+      jest.advanceTimersByTime(500);
+
+      // Dc/Battery/Soc IS forward:true for system, but this message is on vebus/0.
+      // A path-only check (today's bug) would incorrectly forward it.
+      client.emit('message', `N/${portalId}/vebus/0/Dc/Battery/Soc`, Buffer.from('{"value":55}'));
+      jest.advanceTimersByTime(500);
+
+      expect(ha.publish).not.toHaveBeenCalledWith(
+        `vrm/${idSite}/vebus/0/Dc/Battery/Soc`,
+        expect.anything(),
+      );
+    });
+  });
+
   describe('stop()', () => {
     it('clears the keepalive timer', async () => {
       const client = makeMockClient(true);

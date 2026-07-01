@@ -1,5 +1,5 @@
 import type { MqttClient } from 'mqtt';
-import type { VrmInstallation } from './types';
+import type { VrmInstallation, VrmServiceName } from './types';
 import { RollingMessageThrottle } from './RollingMessageThrottle';
 import { DiscoveryPublisher } from '../ha/DiscoveryPublisher';
 import { HaBrokerClient } from '../ha/HaBrokerClient';
@@ -39,34 +39,28 @@ function expandAggregateSourcePaths(templates: readonly string[]): string[] {
   return [...expanded].sort();
 }
 
-/**
- * Build the set of paths that the bridge forwards to HA. A path is forwarded
- * if and only if:
- *   - it is the `path` of a forward: true normal entity (template-expanded
- *     to L-phase indices), OR
- *   - it is the `path` of a forward: true custom aggregate (template-expanded
- *     the same way).
- *
- * Note: this is the set of HA-side topics we publish on, derived from entity
- * `path`s. It is NOT the same as `getObservedPaths()` — that returns the
- * VRM-side topics we subscribe to (which also includes aggregate sources).
- */
-function computeForwardPaths(): ReadonlySet<string> {
+function computeForwardPaths(): ReadonlyMap<VrmServiceName, ReadonlySet<string>> {
   const indices = ['1', '2', '3'] as const;
   const expand = (template: string): string[] =>
     template.includes('{n}')
       ? indices.map((n) => template.replace('{n}', n))
       : [template];
-  const set = new Set<string>();
-  for (const def of SERVICE_ENTITY_DEFS.system ?? []) {
-    if (!def.forward) continue;
-    for (const p of expand(def.path)) set.add(p);
+  const map = new Map<VrmServiceName, Set<string>>();
+  for (const [service, defs] of Object.entries(SERVICE_ENTITY_DEFS) as [VrmServiceName, typeof SERVICE_ENTITY_DEFS[VrmServiceName]][]) {
+    const set = new Set<string>();
+    for (const def of defs ?? []) {
+      if (!def.forward) continue;
+      for (const p of expand(def.path)) set.add(p);
+    }
+    if (service === 'system') {
+      for (const agg of CUSTOM_ENTITY_DEFS.aggregate) {
+        if (!agg.forward) continue;
+        for (const p of expand(agg.path)) set.add(p);
+      }
+    }
+    map.set(service, set);
   }
-  for (const agg of CUSTOM_ENTITY_DEFS.aggregate) {
-    if (!agg.forward) continue;
-    for (const p of expand(agg.path)) set.add(p);
-  }
-  return set;
+  return map;
 }
 
 export interface MqttBridgeConnectionOptions {
@@ -98,7 +92,7 @@ export class MqttBridgeConnection {
   /** Paths the bridge forwards to HA (verbatim VRM message → vrm/{idSite}/...).
    *  Built once at construction from SERVICE_ENTITY_DEFS + CUSTOM_ENTITY_DEFS.
    *  Only paths with forward: true end up here. */
-  private readonly forwardPaths: ReadonlySet<string>;
+  private readonly forwardPaths: ReadonlyMap<VrmServiceName, ReadonlySet<string>>;
   private readonly offlineTimeoutMs: number;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private staleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -312,8 +306,8 @@ export class MqttBridgeConnection {
       haPublished = true;
     }
 
-    // HA forward — only for forward: true entities.
-    if (this.forwardPaths.has(parsed.path)) {
+    // HA forward — only for forward: true entities, scoped to the message's own service.
+    if (this.forwardPaths.get(parsed.service as VrmServiceName)?.has(parsed.path)) {
       const out = routeFromVrm(topic, str, this.getIdSite);
       for (const msg of out) {
         this.publishedStateTopics.add(msg.topic);
