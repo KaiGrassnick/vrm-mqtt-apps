@@ -391,6 +391,36 @@ describe('MqttBridgeConnection', () => {
       expect(client.publish).not.toHaveBeenCalled();
     });
 
+    it('does not re-arm the keepalive timer when connect fires during the prune-drain window', async () => {
+      const client = makeMockClient(false);
+      const publisher = makeMockPublisher();
+      let resolvePrune: (() => void) | undefined;
+      publisher.pruneRetainedTopics.mockImplementationOnce(
+        () => new Promise<void>((resolve) => { resolvePrune = resolve; }),
+      );
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: publisher as never });
+      conn.start();
+      // Connect-time prune is now in flight (its promise hasn't resolved).
+      client.emit('connect');
+
+      const stopPromise = conn.stop();
+      // stop() runs synchronously up to `await this.pruneChain`, so by now the
+      // 'connect' listener has already been detached (or not, pre-fix).
+      client.emit('connect');
+
+      // runPrune() chains pruneRetainedTopics() onto the pruneChain via .then(),
+      // so it isn't actually invoked (and `resolvePrune` isn't assigned) until
+      // this microtask tick runs.
+      await Promise.resolve();
+
+      (client.publish as jest.Mock).mockClear();
+      resolvePrune?.();
+      await stopPromise;
+
+      jest.advanceTimersByTime(60_000);
+      expect(client.publish).not.toHaveBeenCalled();
+    });
+
     it('removes its shard from the shared throttle, so a removed/replaced installation does not leak an empty entry', async () => {
       const client = makeMockClient(true);
       const globalThrottle = {

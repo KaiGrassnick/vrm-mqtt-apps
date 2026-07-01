@@ -181,9 +181,13 @@ export class MqttBridgeConnection {
     // shared throttle forever.
     this.throttle.removeShard(String(this.installation.idSite));
 
-    // Detach message listener before draining prune so no message can be
-    // processed while stop() is draining the prune chain.
+    // Detach listeners whose handlers could re-arm state stop() just cleared
+    // (message: re-arms staleTimer/discoveryRefreshTimer, refills the throttle
+    // shard; connect: re-arms keepaliveTimer/staleTimer, re-subscribes,
+    // re-publishes) before draining the prune chain, so in-flight MQTT events
+    // during the drain can't undo this teardown.
     this.client?.off('message', this.boundHandleMessage);
+    this.client?.off('connect', this.boundHandleConnect);
 
     // Drain any in-flight prune (from a connect-time or debounced discovery
     // refresh run) before tearing down further, so a late prune-triggered
@@ -201,7 +205,6 @@ export class MqttBridgeConnection {
     // No client means start() was never called — nothing to clean up.
     if (!this.client) return;
 
-    this.client.off('connect', this.boundHandleConnect);
     this.client.off('error', this.boundHandleError);
     this.client.off('offline', this.boundHandleOffline);
     this.client.off('reconnect', this.boundHandleReconnect);
