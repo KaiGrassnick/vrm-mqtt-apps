@@ -79,7 +79,12 @@ export function getObservedPaths(): ServiceObservedPaths[] {
  * Same shape as getObservedPaths, but each `{n}` template is collapsed to a
  * single subscription using the MQTT single-level wildcard `+` (e.g.
  * `Ac/Grid/+/Power` instead of three L1/L2/L3 topics). This is only for
- * building broker subscriptions — it cuts subscription count roughly 3x.
+ * building broker subscriptions — every `{n}` group shrinks from 3 concrete
+ * topics to 1 wildcarded topic. The overall reduction depends on the mix of
+ * templated vs. literal paths a service has: `forward: true` literals and
+ * literal aggregate sources (e.g. `Dc/Pv/Power`) don't shrink. Today `system`
+ * goes from 20 concrete topics to 10 (5 templated groups collapse; 4 forward
+ * literals + 1 literal aggregate source stay).
  *
  * A `+` wildcard can admit topics beyond the literal 1/2/3 phase indices
  * (e.g. a hypothetical `Ac/Grid/L4/Power`). That is benign: every downstream
