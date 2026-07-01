@@ -11,6 +11,7 @@ import { getObservedPaths } from '../ha/observedPaths';
 import { logger } from '../logger';
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
+const DISCOVERY_REFRESH_DEBOUNCE_MS = 2_000;
 const SUPPRESS_REPUBLISH = JSON.stringify({ 'keepalive-options': ['suppress-republish'] });
 
 const POSSIBLE_PHASE_INDICES = ['1', '2', '3'] as const;
@@ -96,6 +97,7 @@ export class MqttBridgeConnection {
   private readonly offlineTimeoutMs: number;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private staleTimer: ReturnType<typeof setTimeout> | null = null;
+  private discoveryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private isFirstKeepalive = true;
   /** True between the moment the staleness watchdog (or transport offline) publishes
    *  availability=offline and the moment a forwarded message republishes
@@ -166,6 +168,10 @@ export class MqttBridgeConnection {
     if (this.staleTimer !== null) {
       clearTimeout(this.staleTimer);
       this.staleTimer = null;
+    }
+    if (this.discoveryRefreshTimer !== null) {
+      clearTimeout(this.discoveryRefreshTimer);
+      this.discoveryRefreshTimer = null;
     }
     this.isStale = false;
     this.throttle.flush();
@@ -277,6 +283,18 @@ export class MqttBridgeConnection {
    *  override a connection that is genuinely stale. */
   republishAvailability(): void {
     this.publisher.publishAvailability(this.installation.idSite, !this.isStale);
+  }
+
+  private scheduleDiscoveryRefresh(): void {
+    if (this.discoveryRefreshTimer !== null) return;
+    this.discoveryRefreshTimer = setTimeout(() => {
+      this.discoveryRefreshTimer = null;
+      this.onDiscoveryRefreshFire();
+    }, DISCOVERY_REFRESH_DEBOUNCE_MS);
+  }
+
+  private onDiscoveryRefreshFire(): void {
+    // Task 7 replaces this with the real refresh + prune re-run.
   }
 
   publishToVrm(topic: string, payload: string): void {

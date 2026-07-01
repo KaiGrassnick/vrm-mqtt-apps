@@ -1168,6 +1168,49 @@ describe('MqttBridgeConnection', () => {
     });
   });
 
+  describe('discovery refresh debounce', () => {
+    it('does not fire immediately when scheduled', () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
+      const spy = jest.spyOn(conn as unknown as { onDiscoveryRefreshFire: () => void }, 'onDiscoveryRefreshFire');
+      (conn as unknown as { scheduleDiscoveryRefresh: () => void }).scheduleDiscoveryRefresh();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('fires once after the debounce window', () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
+      const spy = jest.spyOn(conn as unknown as { onDiscoveryRefreshFire: () => void }, 'onDiscoveryRefreshFire');
+      (conn as unknown as { scheduleDiscoveryRefresh: () => void }).scheduleDiscoveryRefresh();
+      jest.advanceTimersByTime(2000);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('coalesces multiple schedule calls within the window into one fire', () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
+      const spy = jest.spyOn(conn as unknown as { onDiscoveryRefreshFire: () => void }, 'onDiscoveryRefreshFire');
+      const schedule = (): void => (conn as unknown as { scheduleDiscoveryRefresh: () => void }).scheduleDiscoveryRefresh();
+      schedule();
+      jest.advanceTimersByTime(500);
+      schedule();
+      jest.advanceTimersByTime(500);
+      schedule();
+      jest.advanceTimersByTime(2000);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('stop() cancels a pending refresh', async () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
+      const spy = jest.spyOn(conn as unknown as { onDiscoveryRefreshFire: () => void }, 'onDiscoveryRefreshFire');
+      (conn as unknown as { scheduleDiscoveryRefresh: () => void }).scheduleDiscoveryRefresh();
+      await conn.stop();
+      jest.advanceTimersByTime(5000);
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('pruneRetainedTopics wire-up', () => {
     it('calls publisher.pruneRetainedTopics(idSite) after connect', async () => {
       const client = makeMockClient(false);
