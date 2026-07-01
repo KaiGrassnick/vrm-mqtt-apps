@@ -181,6 +181,11 @@ export class MqttBridgeConnection {
     // shared throttle forever.
     this.throttle.removeShard(String(this.installation.idSite));
 
+    // Drain any in-flight prune (from a connect-time or debounced discovery
+    // refresh run) before tearing down further, so a late prune-triggered
+    // publish can't fire after publishedStateTopics has already been cleared.
+    await this.pruneChain;
+
     // Clear retained state values on the HA broker so the old installation's last
     // values don't linger after teardown.
     for (const topic of this.publishedStateTopics) {

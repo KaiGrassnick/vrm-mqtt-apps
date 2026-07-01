@@ -334,6 +334,27 @@ describe('pruneRetainedTopics', () => {
     expect(ha.publish).not.toHaveBeenCalled();
   });
 
+  it('does not prune a topic for an instance discovered during the collect window (race regression)', async () => {
+    const { pub, ha } = publisher();
+    const observedInstances = new Map([
+      ['system', new Set(['0'])],
+      ['platform', new Set(['0'])],
+    ]) as Map<import('../../vrm/types').VrmServiceName, Set<string>>;
+    const NEW_INSTANCE_TOPIC = `vrm/${ID_SITE}/system/1/Dc/Battery/Soc`;
+
+    ha.collectRetained.mockImplementationOnce(async () => {
+      // Simulate a second system instance being learned from live traffic
+      // partway through the 300ms collectRetained window, before this
+      // promise resolves.
+      observedInstances.get('system')!.add('1');
+      return [{ topic: NEW_INSTANCE_TOPIC, payload: '{"value":42}' }];
+    });
+
+    await pub.pruneRetainedTopics(ID_SITE, observedInstances);
+
+    expect(ha.publish).not.toHaveBeenCalledWith(NEW_INSTANCE_TOPIC, '', true);
+  });
+
   it('logs the number of pruned topics', async () => {
     // debug-level logs are suppressed by default (LOG_LEVEL=info) — raise it
     // for this test so the underlying console.debug call is observable.

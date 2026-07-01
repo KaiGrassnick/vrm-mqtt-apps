@@ -144,9 +144,9 @@ export class DiscoveryPublisher {
     idSite: number,
     observedInstances: ReadonlyMap<VrmServiceName, ReadonlySet<string>>,
   ): Promise<void> {
-    const keep = getCurrentlyForwardedTopics(idSite, observedInstances);
     const prefix = `vrm/${idSite}/`;
     const retained = await this.ha.collectRetained(`${prefix}#`, 300);
+    const keep = getCurrentlyForwardedTopics(idSite, observedInstances);
 
     let cleared = 0;
     for (const { topic } of retained) {

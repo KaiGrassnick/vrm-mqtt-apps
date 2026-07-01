@@ -71,6 +71,10 @@ export function getObservedPaths(): ServiceObservedPaths[] {
  * `vrm/{idSite}/#`, given the caller's current `observedInstances` snapshot.
  * Derived from SERVICE_ENTITY_DEFS + CUSTOM_ENTITY_DEFS — same source of
  * truth as discovery generation in InstallationDevice.
+ *
+ * This "forward: true paths per service" computation is duplicated in
+ * `computeForwardPaths` (MqttBridgeConnection.ts) and `getObservedPaths`
+ * above — keep all three mutually consistent; a divergence here is a real bug class.
  */
 export function getCurrentlyForwardedTopics(
   idSite: number,
