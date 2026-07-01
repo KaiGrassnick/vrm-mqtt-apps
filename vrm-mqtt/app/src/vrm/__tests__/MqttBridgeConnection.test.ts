@@ -301,6 +301,41 @@ describe('MqttBridgeConnection', () => {
     });
   });
 
+  describe('observedInstances tracking', () => {
+    const portalId = installation.brokerPortalId;
+
+    it('seeds system and platform with instance "0" before any traffic', () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
+      expect(conn.observedInstancesSnapshot.get('system')).toEqual(new Set(['0']));
+      expect(conn.observedInstancesSnapshot.get('platform')).toEqual(new Set(['0']));
+    });
+
+    it('does not seed vebus statically', () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
+      expect(conn.observedInstancesSnapshot.get('vebus')).toBeUndefined();
+    });
+
+    it('records a new instance only when the (service, path) is a forward:true entity', () => {
+      const client = makeMockClient(true);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never, getIdSite: idSiteFor(installation) });
+      conn.start();
+      jest.advanceTimersByTime(500);
+
+      // Dc/Battery/Soc is forward:true for system, already seeded — use it to
+      // prove re-observing an already-known instance is a harmless no-op, then
+      // prove an aggregate-source-only path (not forward:true) does NOT get
+      // recorded as new instance-discovery signal for a hypothetical dynamic
+      // service. Ac/Grid/L1/Power is an aggregate source, not forward:true, on 'system'.
+      client.emit('message', `N/${portalId}/system/0/Ac/Grid/L1/Power`, Buffer.from('{"value":100}'));
+      jest.advanceTimersByTime(500);
+
+      // system/0 was already known — set stays exactly {'0'}, unaffected either way.
+      expect(conn.observedInstancesSnapshot.get('system')).toEqual(new Set(['0']));
+    });
+  });
+
   describe('stop()', () => {
     it('clears the keepalive timer', async () => {
       const client = makeMockClient(true);

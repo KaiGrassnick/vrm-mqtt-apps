@@ -105,6 +105,12 @@ export class MqttBridgeConnection {
   /** HA-side topics this connection has forwarded; cleared on stop() so the broker
    *  doesn't keep the old installation's last value retained. */
   private readonly publishedStateTopics = new Set<string>();
+  /** (service, instance) pairs that have sent forwarded traffic. system/platform
+   *  are seeded with instance '0' at construction; all others discovered dynamically. */
+  private readonly observedInstances: Map<VrmServiceName, Set<string>> = new Map([
+    ['system', new Set(['0'])],
+    ['platform', new Set(['0'])],
+  ]);
 
   // Pre-bound so client.off() can remove the exact same reference
   private readonly boundHandleConnect: () => void;
@@ -295,6 +301,11 @@ export class MqttBridgeConnection {
     return this.installation.idSite;
   }
 
+  /** Snapshot of every (service, instance) pair this connection has forwarded traffic for. Read-only for callers. */
+  get observedInstancesSnapshot(): ReadonlyMap<VrmServiceName, ReadonlySet<string>> {
+    return this.observedInstances;
+  }
+
   private handleMessage(topic: string, payload: Buffer): void {
     if (!topic.startsWith(`N/${this.installation.brokerPortalId}/`)) return;
 
@@ -314,6 +325,15 @@ export class MqttBridgeConnection {
 
     // HA forward — only for forward: true entities, scoped to the message's own service.
     if (this.forwardPaths.get(parsed.service as VrmServiceName)?.has(parsed.path)) {
+      const service = parsed.service as VrmServiceName;
+      let instances = this.observedInstances.get(service);
+      if (!instances) {
+        instances = new Set<string>();
+        this.observedInstances.set(service, instances);
+      }
+      instances.add(parsed.instance);
+      // (Task 4 hooks a "was this new?" signal in here.)
+
       const out = routeFromVrm(topic, str, this.getIdSite);
       for (const msg of out) {
         this.publishedStateTopics.add(msg.topic);
