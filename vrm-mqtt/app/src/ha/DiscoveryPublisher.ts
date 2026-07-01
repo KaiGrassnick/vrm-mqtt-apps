@@ -50,6 +50,28 @@ export class DiscoveryPublisher {
     });
   }
 
+  /**
+   * Rebuild and unconditionally republish discovery for one installation,
+   * bypassing publishInstallation's "same name → no-op" dedupe. Used when the
+   * SET of known (service, instance) pairs changed, not the name — the
+   * stored entry is overwritten too, so a later onHaBirth() republishes the
+   * refreshed payload rather than resurrecting the connect-time one.
+   */
+  refreshInstallationDiscovery(
+    idSite: number,
+    installationName: string,
+    observedInstances: ReadonlyMap<VrmServiceName, ReadonlySet<string>>,
+  ): void {
+    const discoveryTopic = `homeassistant/device/vrm_${idSite}/config`;
+    const payload = JSON.stringify(buildInstallationDiscovery(idSite, installationName, this.appVersion, observedInstances));
+    this.ha.publish(discoveryTopic, payload, true);
+    this.published.set(idSite, {
+      discoveryTopic,
+      payload,
+      name: installationName,
+    });
+  }
+
   /** Publish online/offline to the installation-level availability topic (retained). */
   publishAvailability(idSite: number, online: boolean): void {
     this.ha.publish(`vrm/${idSite}/availability`, online ? 'online' : 'offline', true);

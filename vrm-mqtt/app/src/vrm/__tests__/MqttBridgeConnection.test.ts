@@ -49,11 +49,13 @@ function makeMockPublisher(): {
   publishAvailability: jest.Mock;
   publishInstallation: jest.Mock;
   pruneRetainedTopics: jest.Mock;
+  refreshInstallationDiscovery: jest.Mock;
 } {
   return {
     publishAvailability: jest.fn(),
     publishInstallation: jest.fn(),
     pruneRetainedTopics: jest.fn().mockResolvedValue(undefined),
+    refreshInstallationDiscovery: jest.fn(),
   };
 }
 

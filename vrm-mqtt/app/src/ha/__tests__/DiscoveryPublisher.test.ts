@@ -106,6 +106,41 @@ describe('publishInstallation', () => {
   });
 });
 
+// ── refreshInstallationDiscovery ──────────────────────────────────────────────
+
+describe('refreshInstallationDiscovery', () => {
+  it('republishes even when the name is unchanged (unlike publishInstallation)', () => {
+    const { pub, ha } = publisher();
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+    (ha.publish as jest.Mock).mockClear();
+
+    pub.refreshInstallationDiscovery(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+
+    expect(ha.publish).toHaveBeenCalledWith(
+      `homeassistant/device/vrm_${ID_SITE}/config`,
+      expect.any(String),
+      true,
+    );
+  });
+
+  it('updates the stored payload so onHaBirth republishes the refreshed version, not the stale one', () => {
+    const { pub, ha } = publisher();
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+    const initialCallCount = (ha.publish as jest.Mock).mock.calls.length;
+
+    pub.refreshInstallationDiscovery(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+    const refreshedPayload = (ha.publish as jest.Mock).mock.calls[initialCallCount][1] as string;
+
+    (ha.publish as jest.Mock).mockClear();
+    pub.onHaBirth();
+
+    const rebirthCall = (ha.publish as jest.Mock).mock.calls.find(
+      ([t]: [string]) => t === `homeassistant/device/vrm_${ID_SITE}/config`,
+    ) as [string, string, boolean];
+    expect(rebirthCall[1]).toBe(refreshedPayload);
+  });
+});
+
 // ── publishAvailability ───────────────────────────────────────────────────────
 
 describe('publishAvailability', () => {

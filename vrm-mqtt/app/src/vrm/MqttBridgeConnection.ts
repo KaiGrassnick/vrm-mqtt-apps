@@ -68,7 +68,7 @@ export interface MqttBridgeConnectionOptions {
   installation: VrmInstallation;
   pool: VrmBrokerPool;
   ha: HaBrokerClient;
-  publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics'>;
+  publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics' | 'refreshInstallationDiscovery'>;
   /** Throttle flush interval in ms. 0 = bypass (publish every message directly). Default 500. */
   throttleIntervalMs?: number;
   /** Shared global throttle across all installations. If provided, throttleIntervalMs is ignored. */
@@ -84,7 +84,7 @@ export class MqttBridgeConnection {
   private client: MqttClient | null = null;
   private readonly pool: VrmBrokerPool;
   private readonly ha: HaBrokerClient;
-  private readonly publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics'>;
+  private readonly publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics' | 'refreshInstallationDiscovery'>;
   private readonly throttle: RollingMessageThrottle;
   private readonly getIdSite: (brokerPortalId: string) => number | undefined;
   private readonly subscribeTopics: string[];
