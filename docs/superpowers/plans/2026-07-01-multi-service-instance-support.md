@@ -400,6 +400,8 @@ describe('observedInstances tracking', () => {
 });
 ```
 
+**Note on test strength:** this last test is a weak guard — it can't fail for the wrong reason to be caught, because `system/0` is statically seeded regardless of whether the aggregate-source message is correctly excluded from instance-recording. There's no dynamic service with a `forward: true` entity in production to prove the gate against directly (that's exactly why Task 8 exists). Treat this test as a smoke check that the code path doesn't throw; the real proof that the `forward:true` gate works for a *dynamic* service comes from Task 8's patched-`vebus` end-to-end suite.
+
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd vrm-mqtt/app && npx jest MqttBridgeConnection.test.ts -t "observedInstances tracking"`
@@ -611,7 +613,7 @@ const SYSTEM_PLATFORM_ONLY = new Map([
 ]) as ReadonlyMap<import('../../vrm/types').VrmServiceName, ReadonlySet<string>>;
 ```
 
-Then change every `buildInstallationDiscovery(ID_SITE, NAME, APP_VERSION)` call in the file (and the two `buildInstallationDiscovery(1, NAME, APP_VERSION)` / `buildInstallationDiscovery(2, NAME, APP_VERSION)` calls) to pass `SYSTEM_PLATFORM_ONLY` as a fourth argument, e.g.:
+Then change **every** call to `buildInstallationDiscovery(...)` in the file to pass `SYSTEM_PLATFORM_ONLY` as a fourth argument, regardless of what its first three arguments are — this includes the two calls with `1`/`2` in place of `ID_SITE`, and the one with `'My Custom Name'` in place of `NAME` (`buildInstallationDiscovery(ID_SITE, 'My Custom Name', APP_VERSION)`), not just the calls that use `ID_SITE, NAME, APP_VERSION` verbatim. Confirm afterward with `grep -n "buildInstallationDiscovery(" vrm-mqtt/app/src/ha/__tests__/InstallationDevice.test.ts` that every call ends with `SYSTEM_PLATFORM_ONLY)`. Example of the transform:
 
 ```typescript
 buildInstallationDiscovery(ID_SITE, NAME, APP_VERSION, SYSTEM_PLATFORM_ONLY)
@@ -694,7 +696,7 @@ describe('getCurrentlyForwardedTopics', () => {
 });
 ```
 
-Update `DiscoveryPublisher.test.ts`: every `pub.publishInstallation(ID_SITE, NAME)` / `pub.publishInstallation(999, 'Other Site')` call and every `pub.pruneRetainedTopics(ID_SITE)` call needs the new argument. Add near the top of the file:
+Update `DiscoveryPublisher.test.ts`: **every** `pub.publishInstallation(...)` call and **every** `pub.pruneRetainedTopics(...)` call anywhere in the file needs the new argument appended — this includes calls inside the `publishInstallation`, `removeInstallation`, `onHaBirth`, and `pruneRetainedTopics` describe blocks alike (e.g. `pub.publishInstallation(999, 'Other Site')` inside `removeInstallation`'s and `onHaBirth`'s tests, and `pub.publishInstallation(ID_SITE, 'New Name')` inside the re-publish test — not just the calls that use `ID_SITE, NAME`). Do this as a mechanical find-and-replace across the whole file rather than editing call-by-call from memory, to avoid missing one: every occurrence of `publishInstallation(` followed by two arguments gets `, SYSTEM_PLATFORM_ONLY` inserted before its closing `)`; every occurrence of `pruneRetainedTopics(ID_SITE)` (or any other idSite expression as its sole argument) gets the same. Add near the top of the file:
 
 ```typescript
 const SYSTEM_PLATFORM_ONLY = new Map([
@@ -703,7 +705,7 @@ const SYSTEM_PLATFORM_ONLY = new Map([
 ]) as ReadonlyMap<import('../../vrm/types').VrmServiceName, ReadonlySet<string>>;
 ```
 
-Then append `, SYSTEM_PLATFORM_ONLY` to every `publishInstallation(...)` call and every `pruneRetainedTopics(...)` call in the file.
+After the edit, confirm with `grep -n "publishInstallation(\|pruneRetainedTopics(" vrm-mqtt/app/src/ha/__tests__/DiscoveryPublisher.test.ts` that every matched line ends with `SYSTEM_PLATFORM_ONLY)` before its closing paren (excluding the method *definition* lines being added in Steps 3/5, which don't exist yet at this point).
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -876,6 +878,12 @@ And in `updateName()`:
 ```typescript
     this.publisher.publishInstallation(this.installation.idSite, newName, this.observedInstances);
 ```
+
+This changes `pruneRetainedTopics`'s call arguments, which breaks an existing exact-args assertion in `MqttBridgeConnection.test.ts`'s `pruneRetainedTopics wire-up` describe block: `expect(publisher.pruneRetainedTopics).toHaveBeenCalledWith(installation.idSite)`. Fix it now (not later) so this task's own test run stays green — find that line and update it to:
+```typescript
+      expect(publisher.pruneRetainedTopics).toHaveBeenCalledWith(installation.idSite, conn.observedInstancesSnapshot);
+```
+(`conn` is already in scope at that call site — it's the connection constructed earlier in the same test. This is the only assertion in that describe block that checks `pruneRetainedTopics`'s call arguments; the other test in the block only asserts on rejection handling, not args, and needs no change.)
 
 - [ ] **Step 7: Run tests to verify they pass**
 
@@ -1170,11 +1178,7 @@ Expected: PASS.
 - [ ] **Step 5: Run the full test suite and typecheck**
 
 Run: `cd vrm-mqtt/app && npx jest && npx tsc --noEmit`
-Expected: PASS, no type errors. Pay particular attention to the existing `pruneRetainedTopics wire-up` describe block (Task-1-era tests) — its assertion `expect(publisher.pruneRetainedTopics).toHaveBeenCalledWith(installation.idSite)` must be updated to also expect the `observedInstances` argument:
-```typescript
-      expect(publisher.pruneRetainedTopics).toHaveBeenCalledWith(installation.idSite, conn.observedInstancesSnapshot);
-```
-(Apply this same fix to both tests in that describe block that assert on `pruneRetainedTopics`'s call arguments — capture `conn` from the constructor call if not already in scope.)
+Expected: PASS, no type errors. (The `pruneRetainedTopics wire-up` describe block's call-args assertion was already fixed in Task 5 Step 6 — nothing further to do here.)
 
 - [ ] **Step 6: Commit**
 
@@ -1247,10 +1251,11 @@ If anything fails, it's almost certainly the `DiscoveryConfigBuilder.test.ts` "u
     });
   });
 ```
-This was already slightly stale before this work (`platform` was already wired in with zero `forward: true` entities — the assertion passes because nothing is `forward: true`, not because the service is "unknown"). After Step 1, the `describe('index never observed', ...)` block's `'charger'` test (lines 63-68) has the same staleness (`charger` was "unknown" before Step 1; now it's wired in with zero `forward: true` entities). Both tests still pass with unchanged assertions — only the descriptions are misleading. Update both descriptions to state the real invariant:
+This was already slightly stale before this work (`platform` was already wired in with zero `forward: true` entities — the assertion passes because nothing is `forward: true`, not because the service is "unknown"). After Step 1, the `describe('index never observed', ...)` block's `'charger'` test (lines 63-68) has the same staleness (`charger` was "unknown" before Step 1; now it's wired in with zero `forward: true` entities). Both tests still pass with unchanged assertions — only the descriptions are misleading.
+
+**Important:** the outer `describe('buildDiscoveryConfigs', () => { ... })` wrapper (line 56) already exists and stays exactly as-is — do NOT re-wrap it, or the file ends up with a nested duplicate `describe('buildDiscoveryConfigs')`. Only replace the inner `describe('returns empty array for unknown services', ...)` block (lines 57-61) in place, renaming it and its `it`. The `describe('index never observed', ...)` block right after it (lines 63-68) is a sibling within the same outer wrapper — only its outer `it` description text needs a comment clarifying the new reality, no code change:
 
 ```typescript
-describe('buildDiscoveryConfigs', () => {
   describe('service with entity defs but no forward: true entities', () => {
     it('platform yields no configs (none of its entities are forward: true)', () => {
       expect(buildDiscoveryConfigs(ID_SITE, 'platform', 0, [])).toEqual([]);
@@ -1258,17 +1263,18 @@ describe('buildDiscoveryConfigs', () => {
   });
 
   describe('index never observed', () => {
-    it('emits nothing when the index never appears in observed paths', () => {
+    it('emits nothing when the index never appears in observed paths (charger is now a wired-in service with zero forward: true entities, same reasoning as platform above)', () => {
       const configs = buildDiscoveryConfigs(ID_SITE, 'charger', 30, ['Dc/0/Current']);
       expect(configs.find(c => c.unique_id.includes('dc_0_voltage'))).toBeUndefined();
     });
   });
-});
 ```
 
 - [ ] **Step 4: Write the end-to-end dynamic-instance test**
 
-This exercises the wildcard-subscription path directly, since (per the design doc's flagged nit) no production entity triggers it today. Add a new test file `vrm-mqtt/app/src/vrm/__tests__/MqttBridgeConnection.dynamicInstance.test.ts`:
+This exercises the wildcard-subscription path directly, since (per the design doc's flagged nit) no production entity triggers it today. Add a new test file `vrm-mqtt/app/src/vrm/__tests__/MqttBridgeConnection.dynamicInstance.test.ts`.
+
+**Why the `jest.mock` below actually works:** `computeForwardPaths()` (Task 1) and `getObservedPaths()` (Task 2) both read `SERVICE_ENTITY_DEFS` lazily — the former inside the `MqttBridgeConnection` constructor, the latter inside `buildSubscribeTopics()` — not once at module load time into a top-level constant. Because of that, mocking the `entityDefs` module before constructing a `MqttBridgeConnection` is sufficient; the mock is picked up on each read. If a future refactor hoists either of those into a module-level `const` computed at import time, this test (and the design's whole "learn from live traffic" premise) would silently stop reflecting the mocked/updated registry. Don't make that change without also revisiting this test.
 
 ```typescript
 import { EventEmitter } from 'events';
