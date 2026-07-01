@@ -192,6 +192,7 @@ describe('MqttBridgeConnection', () => {
       expect(publisher.publishInstallation).toHaveBeenCalledWith(
         installation.idSite,
         installation.name,
+        conn.observedInstancesSnapshot,
       );
     });
 
@@ -436,6 +437,7 @@ describe('MqttBridgeConnection', () => {
       expect(publisher.publishInstallation).toHaveBeenCalledWith(
         installation.idSite,
         'Renamed Site',
+        conn.observedInstancesSnapshot,
       );
     });
 
@@ -449,6 +451,7 @@ describe('MqttBridgeConnection', () => {
       expect(publisher.publishInstallation).toHaveBeenCalledWith(
         installation.idSite,
         'Early Rename',
+        conn.observedInstancesSnapshot,
       );
     });
   });
@@ -1231,7 +1234,7 @@ describe('MqttBridgeConnection', () => {
       await Promise.resolve();
 
       expect(publisher.pruneRetainedTopics).toHaveBeenCalledTimes(1);
-      expect(publisher.pruneRetainedTopics).toHaveBeenCalledWith(installation.idSite);
+      expect(publisher.pruneRetainedTopics).toHaveBeenCalledWith(installation.idSite, conn.observedInstancesSnapshot);
     });
 
     it('does not block sendKeepalive when prune rejects', async () => {

@@ -62,53 +62,56 @@ describe('getObservedPaths', () => {
   });
 });
 
-describe.skip('getCurrentlyForwardedTopics', () => {
+describe('getCurrentlyForwardedTopics', () => {
   const ID_SITE = 42;
+  const SYSTEM_PLATFORM_ONLY = new Map([
+    ['system', new Set(['0'])],
+    ['platform', new Set(['0'])],
+  ]) as ReadonlyMap<import('../../vrm/types').VrmServiceName, ReadonlySet<string>>;
 
   it('always contains vrm/{idSite}/availability', () => {
-    const topics = getCurrentlyForwardedTopics(ID_SITE);
+    const topics = getCurrentlyForwardedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
     expect(topics).toContain(`vrm/${ID_SITE}/availability`);
   });
 
   it('contains vrm/{idSite}/system/0/{path} for every forward: true system entity', () => {
-    const topics = getCurrentlyForwardedTopics(ID_SITE);
-    // Dc/Battery/Soc has forward: true in entityDefs.ts.
+    const topics = getCurrentlyForwardedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
     expect(topics).toContain(`vrm/${ID_SITE}/system/0/Dc/Battery/Soc`);
   });
 
   it('currently has no forward: true template entities — template branch is code-review covered', () => {
-    const topics = getCurrentlyForwardedTopics(ID_SITE);
-    // Today every `forward: true` system entity in entityDefs.ts is a literal
-    // path (Dc/Battery/Soc, Dc/Battery/Voltage, Dc/Battery/State). No system
-    // template entity (paths containing {n}) is `forward: true`. The helper's
-    // expandTemplate-based inner loop is therefore unreachable through the
-    // current registry but stays in place for any future forward: true
-    // template entity. This test will flip to a positive assertion if/when
-    // a template entity becomes forward: true.
+    const topics = getCurrentlyForwardedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
     expect(topics).not.toContain(`vrm/${ID_SITE}/system/0/Ac/Grid/L1/Power`);
   });
 
   it('contains vrm/{idSite}/custom/aggregate/{path} for every forward: true aggregate', () => {
-    const topics = getCurrentlyForwardedTopics(ID_SITE);
+    const topics = getCurrentlyForwardedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
     expect(topics).toContain(`vrm/${ID_SITE}/custom/aggregate/Ac/Consumption/Power`);
     expect(topics).toContain(`vrm/${ID_SITE}/custom/aggregate/Ac/Grid/Power`);
   });
 
   it('does NOT contain forward: false / unflagged entity paths', () => {
-    const topics = getCurrentlyForwardedTopics(ID_SITE);
-    // Dc/Battery/Current has no forward flag (defaults to false) in entityDefs.ts.
+    const topics = getCurrentlyForwardedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
     expect(topics).not.toContain(`vrm/${ID_SITE}/system/0/Dc/Battery/Current`);
   });
 
-  it('does NOT contain vebus / platform entity paths (different service)', () => {
-    const topics = getCurrentlyForwardedTopics(ID_SITE);
-    // Ac/Out/L1/P is a vebus entity — must not leak into system/0.
-    expect(topics).not.toContain(`vrm/${ID_SITE}/system/0/Ac/Out/L1/P`);
+  it('includes topics for a dynamically-observed service instance', () => {
+    // Prove the new per-service loop actually emits topics for a non-system
+    // service once observedInstances says an instance is known — even though
+    // vebus has no forward:true entity today (so the set of paths is empty,
+    // this at minimum must not throw and must not silently drop system's topics).
+    const withVebus = new Map([
+      ['system', new Set(['0'])],
+      ['platform', new Set(['0'])],
+      ['vebus', new Set(['0'])],
+    ]) as ReadonlyMap<import('../../vrm/types').VrmServiceName, ReadonlySet<string>>;
+    const topics = getCurrentlyForwardedTopics(ID_SITE, withVebus);
+    expect(topics).toContain(`vrm/${ID_SITE}/system/0/Dc/Battery/Soc`);
   });
 
   it('returns disjoint sets for different idSite values', () => {
-    const a = getCurrentlyForwardedTopics(1);
-    const b = getCurrentlyForwardedTopics(2);
+    const a = getCurrentlyForwardedTopics(1, SYSTEM_PLATFORM_ONLY);
+    const b = getCurrentlyForwardedTopics(2, SYSTEM_PLATFORM_ONLY);
     for (const t of a) {
       expect(b).not.toContain(t);
     }

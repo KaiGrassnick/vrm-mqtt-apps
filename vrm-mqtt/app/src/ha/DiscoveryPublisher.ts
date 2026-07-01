@@ -2,6 +2,7 @@ import type { HaBrokerClient } from './HaBrokerClient';
 import { getCurrentlyForwardedTopics } from './observedPaths';
 import { buildInstallationDiscovery } from './InstallationDevice';
 import { logger } from '../logger';
+import type { VrmServiceName } from '../vrm/types';
 
 interface PublishedInstallation {
   discoveryTopic: string;
@@ -31,12 +32,16 @@ export class DiscoveryPublisher {
    * Build and publish the single-device discovery payload for one installation.
    * No-ops if the name is unchanged (idempotent on reconnect).
    */
-  publishInstallation(idSite: number, installationName: string): void {
+  publishInstallation(
+    idSite: number,
+    installationName: string,
+    observedInstances: ReadonlyMap<VrmServiceName, ReadonlySet<string>>,
+  ): void {
     const existing = this.published.get(idSite);
     if (existing && existing.name === installationName) return;
 
     const discoveryTopic = `homeassistant/device/vrm_${idSite}/config`;
-    const payload = JSON.stringify(buildInstallationDiscovery(idSite, installationName, this.appVersion));
+    const payload = JSON.stringify(buildInstallationDiscovery(idSite, installationName, this.appVersion, observedInstances));
     this.ha.publish(discoveryTopic, payload, true);
     this.published.set(idSite, {
       discoveryTopic,
@@ -113,8 +118,11 @@ export class DiscoveryPublisher {
    * skipped defensively; the keep set is derived from
    * `getCurrentlyForwardedTopics`.
    */
-  async pruneRetainedTopics(idSite: number): Promise<void> {
-    const keep = getCurrentlyForwardedTopics(idSite);
+  async pruneRetainedTopics(
+    idSite: number,
+    observedInstances: ReadonlyMap<VrmServiceName, ReadonlySet<string>>,
+  ): Promise<void> {
+    const keep = getCurrentlyForwardedTopics(idSite, observedInstances);
     const prefix = `vrm/${idSite}/`;
     const retained = await this.ha.collectRetained(`${prefix}#`, 300);
 

@@ -68,27 +68,27 @@ export function getObservedPaths(): ServiceObservedPaths[] {
 
 /**
  * Return the set of full HA-side topics the bridge currently publishes under
- * `vrm/{idSite}/#`. Derived from `SERVICE_ENTITY_DEFS` + `CUSTOM_ENTITY_DEFS`
- * — same source of truth as discovery generation in `DiscoveryConfigBuilder`.
- *
- * Topic construction:
- *   - `vrm/{idSite}/availability`                       (always)
- *   - `vrm/{idSite}/system/0/{path}`                    (per forward: true entity,
- *                                                       `{n}` expanded to 1, 2, 3)
- *   - `vrm/{idSite}/custom/aggregate/{path}`            (per forward: true aggregate;
- *                                                       `path` is literal)
- *
- * Only `system/0` is bridged today; if additional services / instances are
- * bridged in future, extend the per-service loop accordingly.
+ * `vrm/{idSite}/#`, given the caller's current `observedInstances` snapshot.
+ * Derived from SERVICE_ENTITY_DEFS + CUSTOM_ENTITY_DEFS — same source of
+ * truth as discovery generation in InstallationDevice.
  */
-export function getCurrentlyForwardedTopics(idSite: number): Set<string> {
+export function getCurrentlyForwardedTopics(
+  idSite: number,
+  observedInstances: ReadonlyMap<VrmServiceName, ReadonlySet<string>>,
+): Set<string> {
   const topics = new Set<string>();
   topics.add(`vrm/${idSite}/availability`);
 
-  for (const def of SERVICE_ENTITY_DEFS.system ?? []) {
-    if (!def.forward) continue;
-    for (const expanded of expandTemplate(def.path)) {
-      topics.add(makeStateTopic(idSite, 'system', 0, expanded));
+  for (const [service, instances] of observedInstances) {
+    const forwardPaths = new Set<string>();
+    for (const def of SERVICE_ENTITY_DEFS[service] ?? []) {
+      if (!def.forward) continue;
+      for (const p of expandTemplate(def.path)) forwardPaths.add(p);
+    }
+    for (const instance of instances) {
+      for (const path of forwardPaths) {
+        topics.add(makeStateTopic(idSite, service, instance, path));
+      }
     }
   }
 

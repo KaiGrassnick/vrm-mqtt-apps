@@ -231,13 +231,13 @@ export class MqttBridgeConnection {
       }
     });
 
-    this.publisher.publishInstallation(this.installation.idSite, this.installation.name);
+    this.publisher.publishInstallation(this.installation.idSite, this.installation.name, this.observedInstances);
     this.publisher.publishAvailability(this.installation.idSite, false);
     this.touch();
     // Fire-and-forget cleanup of stale retained topics from prior runs whose
     // entity defs are no longer in the forward set. Best-effort — failures
     // are logged at the wire-up site, never raised into handleConnect.
-    this.publisher.pruneRetainedTopics(this.installation.idSite).catch((err) => {
+    this.publisher.pruneRetainedTopics(this.installation.idSite, this.observedInstances).catch((err) => {
       logger.error(`[HA] Prune failed for idSite=${this.installation.idSite}:`, err);
     });
     this.sendKeepalive();
@@ -401,7 +401,7 @@ export class MqttBridgeConnection {
   updateName(newName: string): void {
     if (this.installation.name === newName) return;
     this.installation.name = newName;
-    this.publisher.publishInstallation(this.installation.idSite, newName);
+    this.publisher.publishInstallation(this.installation.idSite, newName, this.observedInstances);
   }
 
   private handleError(err: Error): void {

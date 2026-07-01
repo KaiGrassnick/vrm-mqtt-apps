@@ -2,6 +2,7 @@ import { buildDiscoveryConfigs } from './DiscoveryConfigBuilder';
 import { CUSTOM_ENTITY_DEFS } from './entityDefs';
 import { getObservedPaths } from './observedPaths';
 import type { HaComponent, HaDeviceDiscoveryComponent, HaDeviceDiscoveryPayload, HaDiscoveryConfig } from './types';
+import type { VrmServiceName } from '../vrm/types';
 
 function toComponents(configs: HaDiscoveryConfig[]): Record<string, HaDeviceDiscoveryComponent> {
   const result: Record<string, HaDeviceDiscoveryComponent> = {};
@@ -15,22 +16,30 @@ function toComponents(configs: HaDiscoveryConfig[]): Record<string, HaDeviceDisc
 }
 
 /**
- * Build the HA device discovery payload for one VRM installation.
- *
- * The set of entity configs is derived from the entity defs and custom
- * aggregates — see `getObservedPaths` for the derivation rule.
+ * Build the HA device discovery payload for one VRM installation, merging
+ * configs for every (service, instance) pair present in `observedInstances`.
  */
 export function buildInstallationDiscovery(
   idSite: number,
   installationName: string,
   appVersion: string,
+  observedInstances: ReadonlyMap<VrmServiceName, ReadonlySet<string>>,
 ): HaDeviceDiscoveryPayload {
-  const systemPaths = getObservedPaths().find(s => s.service === 'system')?.paths ?? [];
-  const configs = buildDiscoveryConfigs(
-    idSite, 'system', 0,
-    systemPaths,
-    CUSTOM_ENTITY_DEFS.aggregate,
-  );
+  const pathsByService = new Map(getObservedPaths().map(s => [s.service, s.paths]));
+  const configs: HaDiscoveryConfig[] = [];
+
+  for (const [service, instances] of observedInstances) {
+    const paths = pathsByService.get(service) ?? [];
+    for (const instance of instances) {
+      configs.push(...buildDiscoveryConfigs(
+        idSite,
+        service,
+        instance,
+        paths,
+        service === 'system' ? CUSTOM_ENTITY_DEFS.aggregate : [],
+      ));
+    }
+  }
 
   return {
     device: {
