@@ -1,4 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.17
+- disable apparmor again
+
 ## 0.1.16
 - fix bug which did set installation back to online on rebirth
 - fix memory leak in shared throttle on installation removal/replacement
