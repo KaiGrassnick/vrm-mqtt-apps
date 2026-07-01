@@ -161,8 +161,8 @@ describe('MqttBridgeConnection', () => {
 
       const topics = (client.subscribe as jest.Mock).mock.calls[0][0] as string[];
       // forward: true entities (template-expanded) + aggregate sources (template-expanded).
-      // 3 forward literals + 16 aggregate-source paths = 19.
-      expect(topics).toHaveLength(19);
+      // 4 forward literals + 16 aggregate-source paths = 20.
+      expect(topics).toHaveLength(20);
     });
   });
 

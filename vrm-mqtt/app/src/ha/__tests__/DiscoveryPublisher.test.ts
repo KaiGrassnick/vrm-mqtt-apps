@@ -47,11 +47,11 @@ describe('publishInstallation', () => {
     expect(payload.components).toBeDefined();
   });
 
-  it('payload has 7 components (3 battery + 4 aggregates)', () => {
+  it('payload has 8 components (4 battery + 4 aggregates)', () => {
     const { pub, ha } = publisher();
     pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
-    expect(Object.keys(payload.components)).toHaveLength(7);
+    expect(Object.keys(payload.components)).toHaveLength(8);
   });
 
   it('components use platform instead of component, and have no device field', () => {

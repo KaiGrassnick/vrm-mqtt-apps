@@ -388,7 +388,7 @@ const SYSTEM_ENTITIES: EntityDef[] = [
   { path: 'Dc/Battery/Soc', component: 'sensor', name: 'Battery SOC', unit: '%', deviceClass: 'battery', stateClass: 'measurement', precision: 1, forward: true },
   { path: 'Dc/Battery/Voltage', component: 'sensor', name: 'Battery Voltage', unit: 'V', deviceClass: 'voltage', stateClass: 'measurement', precision: 3, forward: true },
   { path: 'Dc/Battery/Current', component: 'sensor', name: 'Battery Current', unit: 'A', deviceClass: 'current', stateClass: 'measurement', precision: 1 },
-  { path: 'Dc/Battery/Power', component: 'sensor', name: 'Battery Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1 },
+  { path: 'Dc/Battery/Power', component: 'sensor', name: 'Battery Power', unit: 'W', deviceClass: 'power', stateClass: 'measurement', precision: 1, forward: true},
   { path: 'Dc/Battery/TimeToGo', component: 'sensor', name: 'Battery Time To Go', unit: 's', deviceClass: 'duration' },
   { path: 'Dc/Battery/Temperature', component: 'sensor', name: 'Battery Temperature', unit: '°C', deviceClass: 'temperature', stateClass: 'measurement', precision: 1 },
   { path: 'Dc/Battery/ConsumedAmphours', component: 'sensor', name: 'Battery Consumed Amp Hours', unit: 'Ah', stateClass: 'measurement', precision: 1 },
