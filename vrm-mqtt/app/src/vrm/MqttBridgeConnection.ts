@@ -7,7 +7,7 @@ import { parseVrmTopic, routeFromVrm } from '../ha/MessageRouter';
 import { VrmBrokerPool } from './VrmBrokerPool';
 import { AggregateProcessor, type AggregateRule } from './AggregateProcessor';
 import { SERVICE_ENTITY_DEFS, CUSTOM_ENTITY_DEFS } from '../ha/entityDefs';
-import { getObservedPaths } from '../ha/observedPaths';
+import { getSubscribePaths } from '../ha/observedPaths';
 import { logger } from '../logger';
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
@@ -222,7 +222,7 @@ export class MqttBridgeConnection {
   private buildSubscribeTopics(): string[] {
     const id = this.installation.brokerPortalId;
     const topics: string[] = [];
-    for (const { service, instanceSegment, paths } of getObservedPaths()) {
+    for (const { service, instanceSegment, paths } of getSubscribePaths()) {
       for (const path of paths) {
         topics.push(`N/${id}/${service}/${instanceSegment}/${path}`);
       }
@@ -393,13 +393,14 @@ export class MqttBridgeConnection {
   /**
    * Build an AggregateProcessor from CUSTOM_ENTITY_DEFS.aggregate.
    * Only forward: true aggregates are wired up — non-forward aggregates
-   * are still subscribed (their sources are in getObservedPaths) but the
+   * are still subscribed (their sources are in getSubscribePaths) but the
    * processor never produces output for them.
    *
-   * Source-path templates are expanded using the same L-phase indices
-   * that getObservedPaths() uses for subscription. Literal templates are
-   * kept as-is. The processor's observed-sources set then narrows the sum
-   * to whichever phases actually report on this installation.
+   * Source-path templates are expanded to the concrete L-phase indices
+   * (1/2/3) that actually arrive on the bus; the subscription itself uses a
+   * `+` wildcard for those segments (see getSubscribePaths). Literal
+   * templates are kept as-is. The processor's observed-sources set then
+   * narrows the sum to whichever phases actually report on this installation.
    */
   private buildAggregator(sourceExpiryMs: number): AggregateProcessor {
     const rules: AggregateRule[] = [];

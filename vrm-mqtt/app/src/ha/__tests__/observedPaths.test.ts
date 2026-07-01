@@ -1,5 +1,5 @@
 import { SERVICE_ENTITY_DEFS } from '../entityDefs';
-import { getCurrentlyForwardedTopics, getObservedPaths } from '../observedPaths';
+import { getCurrentlyForwardedTopics, getObservedPaths, getSubscribePaths } from '../observedPaths';
 
 describe('getObservedPaths', () => {
   it('returns one entry per service present in SERVICE_ENTITY_DEFS', () => {
@@ -60,6 +60,51 @@ describe('getObservedPaths', () => {
     // it must NOT inherit system's aggregate-source paths.
     const vebusPaths = getObservedPaths().find(s => s.service === 'vebus')!.paths;
     expect(vebusPaths).toEqual([]);
+  });
+});
+
+describe('getSubscribePaths', () => {
+  it('returns one entry per service present in SERVICE_ENTITY_DEFS', () => {
+    const result = getSubscribePaths();
+    const services = result.map(s => s.service).sort();
+    expect(services).toEqual(Object.keys(SERVICE_ENTITY_DEFS).sort());
+  });
+
+  it('system and platform use instanceSegment "0"', () => {
+    const result = getSubscribePaths();
+    expect(result.find(s => s.service === 'system')!.instanceSegment).toBe('0');
+    expect(result.find(s => s.service === 'platform')!.instanceSegment).toBe('0');
+  });
+
+  it('every other service uses instanceSegment "+"', () => {
+    const result = getSubscribePaths();
+    expect(result.find(s => s.service === 'vebus')!.instanceSegment).toBe('+');
+  });
+
+  it('system paths collapse {n} aggregate-source templates to a single "+" wildcard', () => {
+    const systemPaths = getSubscribePaths().find(s => s.service === 'system')!.paths;
+    expect(systemPaths).toContain('Ac/Grid/+/Power');
+    expect(systemPaths).not.toContain('Ac/Grid/L1/Power');
+    expect(systemPaths).not.toContain('Ac/Grid/L2/Power');
+    expect(systemPaths).not.toContain('Ac/Grid/L3/Power');
+  });
+
+  it('system paths include forward: true normal entities as literal paths', () => {
+    const systemPaths = getSubscribePaths().find(s => s.service === 'system')!.paths;
+    expect(systemPaths).toContain('Dc/Battery/Soc');
+    expect(systemPaths).toContain('Dc/Battery/Voltage');
+    expect(systemPaths).toContain('Dc/Battery/State');
+  });
+
+  it('system paths include literal aggregate sources unchanged', () => {
+    const systemPaths = getSubscribePaths().find(s => s.service === 'system')!.paths;
+    expect(systemPaths).toContain('Dc/Pv/Power');
+  });
+
+  it('system paths are sorted and deduplicated', () => {
+    const systemPaths = getSubscribePaths().find(s => s.service === 'system')!.paths;
+    expect([...systemPaths].sort()).toEqual(systemPaths);
+    expect(new Set(systemPaths).size).toBe(systemPaths.length);
   });
 });
 

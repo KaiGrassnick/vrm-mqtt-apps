@@ -140,7 +140,7 @@ describe('MqttBridgeConnection', () => {
         expect.arrayContaining([
           `N/${PORTAL}/system/0/Dc/Pv/Power`,
           `N/${PORTAL}/system/0/Dc/Battery/Soc`,
-          `N/${PORTAL}/system/0/Ac/Grid/L1/Power`,
+          `N/${PORTAL}/system/0/Ac/Grid/+/Power`,
         ]),
         { qos: 0 },
         expect.any(Function),
@@ -153,16 +153,18 @@ describe('MqttBridgeConnection', () => {
       );
     });
 
-    it('subscribes to every forward: true entity path expanded for L-phases', () => {
+    it('subscribes to every forward: true entity path plus wildcarded aggregate sources', () => {
       const client = makeMockClient(false);
       const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
       conn.start();
       client.emit('connect');
 
       const topics = (client.subscribe as jest.Mock).mock.calls[0][0] as string[];
-      // forward: true entities (template-expanded) + aggregate sources (template-expanded).
-      // 4 forward literals + 16 aggregate-source paths = 20.
-      expect(topics).toHaveLength(20);
+      // forward: true entities (literal) + aggregate sources with {n} collapsed to a
+      // single `+` wildcard subscription instead of one topic per phase.
+      // 4 forward literals + 5 wildcarded {n} aggregate-source groups + 1 literal
+      // aggregate source (Dc/Pv/Power) = 10.
+      expect(topics).toHaveLength(10);
     });
   });
 
