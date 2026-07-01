@@ -8,7 +8,7 @@ describe('pollInstallations overlapping-guard', () => {
 
   beforeEach(() => {
     jest.resetModules();
-    process.env = { ...originalEnv, VRM_API_TOKEN: 't', HA_MQTT_HOST: 'h' };
+    process.env = { ...originalEnv, VRM_API_TOKEN: 't', HA_MQTT_HOST: 'h', LOG_LEVEL: 'info' };
     consoleLog = jest.spyOn(console, 'log').mockImplementation(() => {});
   });
 

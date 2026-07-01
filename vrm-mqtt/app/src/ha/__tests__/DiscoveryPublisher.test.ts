@@ -15,13 +15,17 @@ function publisher(ha: jest.Mocked<Pick<HaBrokerClient, 'publish' | 'collectReta
 
 const ID_SITE = 12345;
 const NAME = 'Beach House';
+const SYSTEM_PLATFORM_ONLY = new Map([
+  ['system', new Set(['0'])],
+  ['platform', new Set(['0'])],
+]) as ReadonlyMap<import('../../vrm/types').VrmServiceName, ReadonlySet<string>>;
 
 // ── publishInstallation ───────────────────────────────────────────────────────
 
 describe('publishInstallation', () => {
   it('publishes retained to homeassistant/device/vrm_{idSite}/config', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
     expect(ha.publish).toHaveBeenCalledWith(
       `homeassistant/device/vrm_${ID_SITE}/config`,
       expect.any(String),
@@ -31,7 +35,7 @@ describe('publishInstallation', () => {
 
   it('payload has device, origin, availability_topic, and components', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
     expect(payload.device).toMatchObject({
       identifiers: [`vrm_${ID_SITE}`],
@@ -43,16 +47,16 @@ describe('publishInstallation', () => {
     expect(payload.components).toBeDefined();
   });
 
-  it('payload has 7 components (3 battery + 4 aggregates)', () => {
+  it('payload has 8 components (4 battery + 4 aggregates)', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
-    expect(Object.keys(payload.components)).toHaveLength(7);
+    expect(Object.keys(payload.components)).toHaveLength(8);
   });
 
   it('components use platform instead of component, and have no device field', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
     for (const comp of Object.values(payload.components) as Record<string, unknown>[]) {
       expect(comp.platform).toBeDefined();
@@ -63,7 +67,7 @@ describe('publishInstallation', () => {
 
   it('state_topic uses full vrm path (system/0)', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
     const soc = payload.components['system_0_dc_battery_soc'];
     expect(soc.state_topic).toBe(`vrm/${ID_SITE}/system/0/Dc/Battery/Soc`);
@@ -71,14 +75,14 @@ describe('publishInstallation', () => {
 
   it('includes the grid aggregate component', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
     expect(payload.components['custom_aggregate_ac_grid_power']).toBeDefined();
   });
 
   it('includes the remaining custom aggregate components', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[0][1] as string);
     expect(payload.components['custom_aggregate_ac_consumption_power']).toBeDefined();
     expect(payload.components['custom_aggregate_ac_genset_power']).toBeDefined();
@@ -87,18 +91,53 @@ describe('publishInstallation', () => {
 
   it('is idempotent: no re-publish when name unchanged', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
-    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
     expect(ha.publish).toHaveBeenCalledTimes(1);
   });
 
   it('re-publishes when name changes', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
-    pub.publishInstallation(ID_SITE, 'New Name');
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+    pub.publishInstallation(ID_SITE, 'New Name', SYSTEM_PLATFORM_ONLY);
     expect(ha.publish).toHaveBeenCalledTimes(2);
     const payload = JSON.parse((ha.publish as jest.Mock).mock.calls[1][1] as string);
     expect(payload.device.name).toBe('New Name');
+  });
+});
+
+// ── refreshInstallationDiscovery ──────────────────────────────────────────────
+
+describe('refreshInstallationDiscovery', () => {
+  it('republishes even when the name is unchanged (unlike publishInstallation)', () => {
+    const { pub, ha } = publisher();
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+    (ha.publish as jest.Mock).mockClear();
+
+    pub.refreshInstallationDiscovery(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+
+    expect(ha.publish).toHaveBeenCalledWith(
+      `homeassistant/device/vrm_${ID_SITE}/config`,
+      expect.any(String),
+      true,
+    );
+  });
+
+  it('updates the stored payload so onHaBirth republishes the refreshed version, not the stale one', () => {
+    const { pub, ha } = publisher();
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+    const initialCallCount = (ha.publish as jest.Mock).mock.calls.length;
+
+    pub.refreshInstallationDiscovery(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+    const refreshedPayload = (ha.publish as jest.Mock).mock.calls[initialCallCount][1] as string;
+
+    (ha.publish as jest.Mock).mockClear();
+    pub.onHaBirth();
+
+    const rebirthCall = (ha.publish as jest.Mock).mock.calls.find(
+      ([t]: [string]) => t === `homeassistant/device/vrm_${ID_SITE}/config`,
+    ) as [string, string, boolean];
+    expect(rebirthCall[1]).toBe(refreshedPayload);
   });
 });
 
@@ -123,7 +162,7 @@ describe('publishAvailability', () => {
 describe('removeInstallation', () => {
   it('clears the retained discovery topic and publishes offline', async () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
     (ha.publish as jest.Mock).mockClear();
 
     await pub.removeInstallation(ID_SITE);
@@ -138,8 +177,8 @@ describe('removeInstallation', () => {
 
   it('does not touch other installations', async () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
-    pub.publishInstallation(999, 'Other Site');
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+    pub.publishInstallation(999, 'Other Site', SYSTEM_PLATFORM_ONLY);
     (ha.publish as jest.Mock).mockClear();
 
     await pub.removeInstallation(ID_SITE);
@@ -176,10 +215,10 @@ describe('removeInstallation', () => {
 
   it('allows re-publish after removal', async () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
     await pub.removeInstallation(ID_SITE);
     (ha.publish as jest.Mock).mockClear();
-    pub.publishInstallation(ID_SITE, NAME);
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
     expect(ha.publish).toHaveBeenCalledTimes(1);
   });
 });
@@ -189,8 +228,8 @@ describe('removeInstallation', () => {
 describe('onHaBirth', () => {
   it('re-publishes all stored discovery payloads retained', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
-    pub.publishInstallation(999, 'Other Site');
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+    pub.publishInstallation(999, 'Other Site', SYSTEM_PLATFORM_ONLY);
     (ha.publish as jest.Mock).mockClear();
 
     pub.onHaBirth();
@@ -203,8 +242,8 @@ describe('onHaBirth', () => {
 
   it('does NOT touch availability — real online/offline state belongs to MqttBridgeConnection staleness tracking', () => {
     const { pub, ha } = publisher();
-    pub.publishInstallation(ID_SITE, NAME);
-    pub.publishInstallation(999, 'Other Site');
+    pub.publishInstallation(ID_SITE, NAME, SYSTEM_PLATFORM_ONLY);
+    pub.publishInstallation(999, 'Other Site', SYSTEM_PLATFORM_ONLY);
     (ha.publish as jest.Mock).mockClear();
 
     pub.onHaBirth();
@@ -241,7 +280,7 @@ describe('pruneRetainedTopics', () => {
   it('clears only the stale retained topics (not in keep set)', async () => {
     const { pub, ha } = publisher();
     seedRetained(ha, [KEEP_TOPIC, STALE_TOPIC]);
-    await pub.pruneRetainedTopics(ID_SITE);
+    await pub.pruneRetainedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
 
     expect(ha.publish).toHaveBeenCalledTimes(1);
     expect(ha.publish).toHaveBeenCalledWith(STALE_TOPIC, '', true);
@@ -250,7 +289,7 @@ describe('pruneRetainedTopics', () => {
   it('skips the availability topic even when the broker surfaces it', async () => {
     const { pub, ha } = publisher();
     seedRetained(ha, [AVAIL_TOPIC]);
-    await pub.pruneRetainedTopics(ID_SITE);
+    await pub.pruneRetainedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
 
     expect(ha.publish).not.toHaveBeenCalled();
   });
@@ -258,7 +297,7 @@ describe('pruneRetainedTopics', () => {
   it('skips /set topics (live command writes during collect window)', async () => {
     const { pub, ha } = publisher();
     seedRetained(ha, [SET_TOPIC]);
-    await pub.pruneRetainedTopics(ID_SITE);
+    await pub.pruneRetainedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
 
     expect(ha.publish).not.toHaveBeenCalled();
   });
@@ -266,7 +305,7 @@ describe('pruneRetainedTopics', () => {
   it('skips topics that belong to a different idSite (defensive)', async () => {
     const { pub, ha } = publisher();
     seedRetained(ha, [SIBLING_TOPIC]);
-    await pub.pruneRetainedTopics(ID_SITE);
+    await pub.pruneRetainedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
 
     expect(ha.publish).not.toHaveBeenCalled();
   });
@@ -278,7 +317,7 @@ describe('pruneRetainedTopics', () => {
       `vrm/${ID_SITE}/system/0/Ac/Whatever`,
       `vrm/${ID_SITE}/system/0/Old/Removed/Path`,
     ]);
-    await pub.pruneRetainedTopics(ID_SITE);
+    await pub.pruneRetainedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
 
     const cleared = (ha.publish as jest.Mock).mock.calls.map(([t]: [string]) => t);
     expect(cleared).toEqual([
@@ -290,9 +329,30 @@ describe('pruneRetainedTopics', () => {
   it('is a no-op when the broker returns no retained topics', async () => {
     const { pub, ha } = publisher();
     seedRetained(ha, []);
-    await pub.pruneRetainedTopics(ID_SITE);
+    await pub.pruneRetainedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
 
     expect(ha.publish).not.toHaveBeenCalled();
+  });
+
+  it('does not prune a topic for an instance discovered during the collect window (race regression)', async () => {
+    const { pub, ha } = publisher();
+    const observedInstances = new Map([
+      ['system', new Set(['0'])],
+      ['platform', new Set(['0'])],
+    ]) as Map<import('../../vrm/types').VrmServiceName, Set<string>>;
+    const NEW_INSTANCE_TOPIC = `vrm/${ID_SITE}/system/1/Dc/Battery/Soc`;
+
+    ha.collectRetained.mockImplementationOnce(async () => {
+      // Simulate a second system instance being learned from live traffic
+      // partway through the 300ms collectRetained window, before this
+      // promise resolves.
+      observedInstances.get('system')!.add('1');
+      return [{ topic: NEW_INSTANCE_TOPIC, payload: '{"value":42}' }];
+    });
+
+    await pub.pruneRetainedTopics(ID_SITE, observedInstances);
+
+    expect(ha.publish).not.toHaveBeenCalledWith(NEW_INSTANCE_TOPIC, '', true);
   });
 
   it('logs the number of pruned topics', async () => {
@@ -303,7 +363,7 @@ describe('pruneRetainedTopics', () => {
     const spy = jest.spyOn(console, 'debug').mockImplementation(() => {});
     const { pub, ha } = publisher();
     seedRetained(ha, [`vrm/${ID_SITE}/system/0/A`, `vrm/${ID_SITE}/system/0/B`]);
-    await pub.pruneRetainedTopics(ID_SITE);
+    await pub.pruneRetainedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
 
     expect(spy).toHaveBeenCalledWith(
       expect.stringMatching(/Pruned 2 stale retained topic\(s\) under vrm\/12345\//),

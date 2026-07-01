@@ -1,4 +1,10 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.1.18
+- add support for multiple instances of the same service per installation (e.g. multiple solar chargers/battery monitors), with automatic discovery when new instances appear
+- fix race conditions in MQTT bridge connection teardown that could drop listeners or corrupt discovery state during shutdown/pruning
+- forward battery power and surface it on the fleet dashboard (table column, per-installation and fleet-wide sensors, badge)
+- reduce VRM broker subscriptions by collapsing per-phase (L1/L2/L3) topics into a single MQTT wildcard subscription
+
 ## 0.1.17
 - disable apparmor again
 

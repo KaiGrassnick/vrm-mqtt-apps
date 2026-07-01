@@ -39,6 +39,12 @@ views:
                 modify: parseFloat(x).toFixed(2)
                 footer_type: average
                 footer_modify: parseFloat(x).toFixed(2)
+              - name: Battery Power
+                data: installations.battery_power
+                align: right
+                suffix: " W"
+                modify: Math.round(x)
+                footer_type: sum
               - name: Solar
                 data: installations.pv
                 align: right
@@ -68,7 +74,7 @@ views:
               thead, tbody, tfoot: "display: contents;"
               tr: >-
                 display: grid; grid-template-columns: 0.5fr 2fr 1fr 1fr 1fr 1fr
-                1fr 1fr;
+                1fr 1fr 1fr;
               thead tr: "order: 1; margin-bottom: 16px;"
               tbody tr: "order: 3;"
               tfoot tr: >-
@@ -117,6 +123,11 @@ views:
         show_state: true
         show_icon: true
         entity: sensor.vrm_installations_battery_voltage_average
+      - type: entity
+        show_name: false
+        show_state: true
+        show_icon: true
+        entity: sensor.vrm_installations_battery_power
       - type: entity
         show_name: false
         show_state: true

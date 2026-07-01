@@ -2,6 +2,7 @@ import type { HaBrokerClient } from './HaBrokerClient';
 import { getCurrentlyForwardedTopics } from './observedPaths';
 import { buildInstallationDiscovery } from './InstallationDevice';
 import { logger } from '../logger';
+import type { VrmServiceName } from '../vrm/types';
 
 interface PublishedInstallation {
   discoveryTopic: string;
@@ -31,12 +32,38 @@ export class DiscoveryPublisher {
    * Build and publish the single-device discovery payload for one installation.
    * No-ops if the name is unchanged (idempotent on reconnect).
    */
-  publishInstallation(idSite: number, installationName: string): void {
+  publishInstallation(
+    idSite: number,
+    installationName: string,
+    observedInstances: ReadonlyMap<VrmServiceName, ReadonlySet<string>>,
+  ): void {
     const existing = this.published.get(idSite);
     if (existing && existing.name === installationName) return;
 
     const discoveryTopic = `homeassistant/device/vrm_${idSite}/config`;
-    const payload = JSON.stringify(buildInstallationDiscovery(idSite, installationName, this.appVersion));
+    const payload = JSON.stringify(buildInstallationDiscovery(idSite, installationName, this.appVersion, observedInstances));
+    this.ha.publish(discoveryTopic, payload, true);
+    this.published.set(idSite, {
+      discoveryTopic,
+      payload,
+      name: installationName,
+    });
+  }
+
+  /**
+   * Rebuild and unconditionally republish discovery for one installation,
+   * bypassing publishInstallation's "same name → no-op" dedupe. Used when the
+   * SET of known (service, instance) pairs changed, not the name — the
+   * stored entry is overwritten too, so a later onHaBirth() republishes the
+   * refreshed payload rather than resurrecting the connect-time one.
+   */
+  refreshInstallationDiscovery(
+    idSite: number,
+    installationName: string,
+    observedInstances: ReadonlyMap<VrmServiceName, ReadonlySet<string>>,
+  ): void {
+    const discoveryTopic = `homeassistant/device/vrm_${idSite}/config`;
+    const payload = JSON.stringify(buildInstallationDiscovery(idSite, installationName, this.appVersion, observedInstances));
     this.ha.publish(discoveryTopic, payload, true);
     this.published.set(idSite, {
       discoveryTopic,
@@ -113,10 +140,13 @@ export class DiscoveryPublisher {
    * skipped defensively; the keep set is derived from
    * `getCurrentlyForwardedTopics`.
    */
-  async pruneRetainedTopics(idSite: number): Promise<void> {
-    const keep = getCurrentlyForwardedTopics(idSite);
+  async pruneRetainedTopics(
+    idSite: number,
+    observedInstances: ReadonlyMap<VrmServiceName, ReadonlySet<string>>,
+  ): Promise<void> {
     const prefix = `vrm/${idSite}/`;
     const retained = await this.ha.collectRetained(`${prefix}#`, 300);
+    const keep = getCurrentlyForwardedTopics(idSite, observedInstances);
 
     let cleared = 0;
     for (const { topic } of retained) {

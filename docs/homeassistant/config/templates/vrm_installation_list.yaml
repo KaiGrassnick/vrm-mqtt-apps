@@ -16,6 +16,7 @@
             {% set id = 'vrm_' ~ portal %}
             {% set soc   = states('sensor.' ~ id ~ '_system_0_dc_battery_soc')                    | float(0) %}
             {% set battery_voltage = states('sensor.' ~ id ~ '_system_0_dc_battery_voltage')      | float(0) %}
+            {% set battery_power = states('sensor.' ~ id ~ '_system_0_dc_battery_power')          | float(0) %}
             {% set pv = states('sensor.' ~ id ~ '_custom_aggregate_pv_power')                     | float(0) %}
             {% set grid  = states('sensor.' ~ id ~ '_custom_aggregate_ac_grid_power')             | float(0) %}
             {% set gens  = states('sensor.' ~ id ~ '_custom_aggregate_ac_genset_power')           | float(0) %}
@@ -28,6 +29,7 @@
               'online':           online,
               'soc':              soc,
               'battery_voltage':  battery_voltage,
+              'battery_power':    battery_power,
               'pv':               pv,
               'grid':             grid,
               'genset':           gens,

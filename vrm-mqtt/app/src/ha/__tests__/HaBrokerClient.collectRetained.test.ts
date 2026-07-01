@@ -69,6 +69,8 @@ describe('HaBrokerClient.collectRetained', () => {
     const client = new HaBrokerClient({ host: 'h', port: 1 });
     (client as unknown as { client: MqttClient }).client = fakeClient;
 
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
     const promise = client.collectRetained('foo/#', 100);
 
     // Microtask drain so listener can be attached.
@@ -85,6 +87,7 @@ describe('HaBrokerClient.collectRetained', () => {
     const result = await promise;
     expect(result).toEqual([]);
 
+    errorSpy.mockRestore();
     jest.useRealTimers();
   });
 });

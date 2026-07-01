@@ -49,11 +49,13 @@ function makeMockPublisher(): {
   publishAvailability: jest.Mock;
   publishInstallation: jest.Mock;
   pruneRetainedTopics: jest.Mock;
+  refreshInstallationDiscovery: jest.Mock;
 } {
   return {
     publishAvailability: jest.fn(),
     publishInstallation: jest.fn(),
     pruneRetainedTopics: jest.fn().mockResolvedValue(undefined),
+    refreshInstallationDiscovery: jest.fn(),
   };
 }
 
@@ -138,7 +140,7 @@ describe('MqttBridgeConnection', () => {
         expect.arrayContaining([
           `N/${PORTAL}/system/0/Dc/Pv/Power`,
           `N/${PORTAL}/system/0/Dc/Battery/Soc`,
-          `N/${PORTAL}/system/0/Ac/Grid/L1/Power`,
+          `N/${PORTAL}/system/0/Ac/Grid/+/Power`,
         ]),
         { qos: 0 },
         expect.any(Function),
@@ -151,16 +153,18 @@ describe('MqttBridgeConnection', () => {
       );
     });
 
-    it('subscribes to every forward: true entity path expanded for L-phases', () => {
+    it('subscribes to every forward: true entity path plus wildcarded aggregate sources', () => {
       const client = makeMockClient(false);
       const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
       conn.start();
       client.emit('connect');
 
       const topics = (client.subscribe as jest.Mock).mock.calls[0][0] as string[];
-      // forward: true entities (template-expanded) + aggregate sources (template-expanded).
-      // 3 forward literals + 16 aggregate-source paths = 19.
-      expect(topics).toHaveLength(19);
+      // forward: true entities (literal) + aggregate sources with {n} collapsed to a
+      // single `+` wildcard subscription instead of one topic per phase.
+      // 4 forward literals + 5 wildcarded {n} aggregate-source groups + 1 literal
+      // aggregate source (Dc/Pv/Power) = 10.
+      expect(topics).toHaveLength(10);
     });
   });
 
@@ -192,6 +196,7 @@ describe('MqttBridgeConnection', () => {
       expect(publisher.publishInstallation).toHaveBeenCalledWith(
         installation.idSite,
         installation.name,
+        conn.observedInstancesSnapshot,
       );
     });
 
@@ -272,6 +277,70 @@ describe('MqttBridgeConnection', () => {
     });
   });
 
+  describe('forward-path collision safety', () => {
+    const portalId = installation.brokerPortalId;
+    const idSite = installation.idSite;
+
+    it("forwarding is scoped per-service: a message for vebus/0/Dc/Battery/Soc (system's forward path, but on vebus) is not forwarded", () => {
+      const client = makeMockClient(true);
+      const ha = makeMockHa();
+      const conn = new MqttBridgeConnection({
+        installation,
+        pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool,
+        ha: ha as never,
+        publisher: makeMockPublisher() as never,
+        getIdSite: idSiteFor(installation),
+      });
+      conn.start();
+      jest.advanceTimersByTime(500);
+
+      // Dc/Battery/Soc IS forward:true for system, but this message is on vebus/0.
+      // A path-only check (today's bug) would incorrectly forward it.
+      client.emit('message', `N/${portalId}/vebus/0/Dc/Battery/Soc`, Buffer.from('{"value":55}'));
+      jest.advanceTimersByTime(500);
+
+      expect(ha.publish).not.toHaveBeenCalledWith(
+        `vrm/${idSite}/vebus/0/Dc/Battery/Soc`,
+        expect.anything(),
+      );
+    });
+  });
+
+  describe('observedInstances tracking', () => {
+    const portalId = installation.brokerPortalId;
+
+    it('seeds system and platform with instance "0" before any traffic', () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
+      expect(conn.observedInstancesSnapshot.get('system')).toEqual(new Set(['0']));
+      expect(conn.observedInstancesSnapshot.get('platform')).toEqual(new Set(['0']));
+    });
+
+    it('does not seed vebus statically', () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
+      expect(conn.observedInstancesSnapshot.get('vebus')).toBeUndefined();
+    });
+
+    it('records a new instance only when the (service, path) is a forward:true entity', () => {
+      const client = makeMockClient(true);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never, getIdSite: idSiteFor(installation) });
+      conn.start();
+      jest.advanceTimersByTime(500);
+
+      // Dc/Battery/Soc is forward:true for system, already seeded — use it to
+      // prove re-observing an already-known instance is a harmless no-op, then
+      // prove an aggregate-source-only path (not forward:true) does NOT get
+      // recorded as new instance-discovery signal for a hypothetical dynamic
+      // service. Ac/Grid/L1/Power is an aggregate source, not forward:true, on 'system'.
+      client.emit('message', `N/${portalId}/system/0/Ac/Grid/L1/Power`, Buffer.from('{"value":100}'));
+      jest.advanceTimersByTime(500);
+
+      // system/0 was already known — set stays exactly {'0'}, unaffected either way.
+      expect(conn.observedInstancesSnapshot.get('system')).toEqual(new Set(['0']));
+    });
+  });
+
   describe('stop()', () => {
     it('clears the keepalive timer', async () => {
       const client = makeMockClient(true);
@@ -324,6 +393,36 @@ describe('MqttBridgeConnection', () => {
       expect(client.publish).not.toHaveBeenCalled();
     });
 
+    it('does not re-arm the keepalive timer when connect fires during the prune-drain window', async () => {
+      const client = makeMockClient(false);
+      const publisher = makeMockPublisher();
+      let resolvePrune: (() => void) | undefined;
+      publisher.pruneRetainedTopics.mockImplementationOnce(
+        () => new Promise<void>((resolve) => { resolvePrune = resolve; }),
+      );
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: publisher as never });
+      conn.start();
+      // Connect-time prune is now in flight (its promise hasn't resolved).
+      client.emit('connect');
+
+      const stopPromise = conn.stop();
+      // stop() runs synchronously up to `await this.pruneChain`, so by now the
+      // 'connect' listener has already been detached (or not, pre-fix).
+      client.emit('connect');
+
+      // runPrune() chains pruneRetainedTopics() onto the pruneChain via .then(),
+      // so it isn't actually invoked (and `resolvePrune` isn't assigned) until
+      // this microtask tick runs.
+      await Promise.resolve();
+
+      (client.publish as jest.Mock).mockClear();
+      resolvePrune?.();
+      await stopPromise;
+
+      jest.advanceTimersByTime(60_000);
+      expect(client.publish).not.toHaveBeenCalled();
+    });
+
     it('removes its shard from the shared throttle, so a removed/replaced installation does not leak an empty entry', async () => {
       const client = makeMockClient(true);
       const globalThrottle = {
@@ -372,6 +471,7 @@ describe('MqttBridgeConnection', () => {
       expect(publisher.publishInstallation).toHaveBeenCalledWith(
         installation.idSite,
         'Renamed Site',
+        conn.observedInstancesSnapshot,
       );
     });
 
@@ -385,6 +485,7 @@ describe('MqttBridgeConnection', () => {
       expect(publisher.publishInstallation).toHaveBeenCalledWith(
         installation.idSite,
         'Early Rename',
+        conn.observedInstancesSnapshot,
       );
     });
   });
@@ -1104,6 +1205,49 @@ describe('MqttBridgeConnection', () => {
     });
   });
 
+  describe('discovery refresh debounce', () => {
+    it('does not fire immediately when scheduled', () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
+      const spy = jest.spyOn(conn as unknown as { onDiscoveryRefreshFire: () => void }, 'onDiscoveryRefreshFire');
+      (conn as unknown as { scheduleDiscoveryRefresh: () => void }).scheduleDiscoveryRefresh();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('fires once after the debounce window', () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
+      const spy = jest.spyOn(conn as unknown as { onDiscoveryRefreshFire: () => void }, 'onDiscoveryRefreshFire');
+      (conn as unknown as { scheduleDiscoveryRefresh: () => void }).scheduleDiscoveryRefresh();
+      jest.advanceTimersByTime(2000);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('coalesces multiple schedule calls within the window into one fire', () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
+      const spy = jest.spyOn(conn as unknown as { onDiscoveryRefreshFire: () => void }, 'onDiscoveryRefreshFire');
+      const schedule = (): void => (conn as unknown as { scheduleDiscoveryRefresh: () => void }).scheduleDiscoveryRefresh();
+      schedule();
+      jest.advanceTimersByTime(500);
+      schedule();
+      jest.advanceTimersByTime(500);
+      schedule();
+      jest.advanceTimersByTime(2000);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('stop() cancels a pending refresh', async () => {
+      const client = makeMockClient(false);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: makeMockPublisher() as never });
+      const spy = jest.spyOn(conn as unknown as { onDiscoveryRefreshFire: () => void }, 'onDiscoveryRefreshFire');
+      (conn as unknown as { scheduleDiscoveryRefresh: () => void }).scheduleDiscoveryRefresh();
+      await conn.stop();
+      jest.advanceTimersByTime(5000);
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('pruneRetainedTopics wire-up', () => {
     it('calls publisher.pruneRetainedTopics(idSite) after connect', async () => {
       const client = makeMockClient(false);
@@ -1124,7 +1268,7 @@ describe('MqttBridgeConnection', () => {
       await Promise.resolve();
 
       expect(publisher.pruneRetainedTopics).toHaveBeenCalledTimes(1);
-      expect(publisher.pruneRetainedTopics).toHaveBeenCalledWith(installation.idSite);
+      expect(publisher.pruneRetainedTopics).toHaveBeenCalledWith(installation.idSite, conn.observedInstancesSnapshot);
     });
 
     it('does not block sendKeepalive when prune rejects', async () => {
@@ -1147,6 +1291,12 @@ describe('MqttBridgeConnection', () => {
         client.emit('connect');
 
         // Drain microtasks so the .catch handler has run before we assert on it.
+        // runPrune()'s chained `.then(fn).catch(...)` needs 4 ticks: one to run
+        // the pruneChain's initial .then(fn), one to adopt the rejected promise
+        // fn() returns, one to propagate that rejection, and one for .catch to
+        // handle it.
+        await Promise.resolve();
+        await Promise.resolve();
         await Promise.resolve();
         await Promise.resolve();
 
@@ -1171,6 +1321,76 @@ describe('MqttBridgeConnection', () => {
         // Restore in finally so the spy is removed even if an assertion fails.
         errSpy.mockRestore();
       }
+    });
+  });
+
+  describe('instance-driven discovery refresh (end-to-end)', () => {
+    const portalId = installation.brokerPortalId;
+
+    it('schedules a discovery refresh when a genuinely new (service, instance) is observed', () => {
+      const client = makeMockClient(true);
+      const publisher = makeMockPublisher();
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: publisher as never, getIdSite: idSiteFor(installation) });
+      conn.start();
+      jest.advanceTimersByTime(500);
+      publisher.refreshInstallationDiscovery.mockClear();
+      publisher.pruneRetainedTopics.mockClear();
+
+      // system/0 is already known from seeding — re-observing it must NOT
+      // schedule a refresh (nothing new).
+      client.emit('message', `N/${portalId}/system/0/Dc/Battery/Soc`, Buffer.from('{"value":80}'));
+      jest.advanceTimersByTime(2000);
+
+      expect(publisher.refreshInstallationDiscovery).not.toHaveBeenCalled();
+    });
+
+    it('does not fire a refresh for messages that are not forward:true (no new instance signal)', () => {
+      const client = makeMockClient(true);
+      const publisher = makeMockPublisher();
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: publisher as never, getIdSite: idSiteFor(installation) });
+      conn.start();
+      jest.advanceTimersByTime(500);
+      publisher.refreshInstallationDiscovery.mockClear();
+
+      client.emit('message', `N/${portalId}/system/0/Ac/Grid/L1/Power`, Buffer.from('{"value":100}'));
+      jest.advanceTimersByTime(2000);
+
+      expect(publisher.refreshInstallationDiscovery).not.toHaveBeenCalled();
+    });
+
+    it('serializes the connect-time prune and a later debounced prune re-run rather than racing', async () => {
+      const client = makeMockClient(false);
+      const publisher = makeMockPublisher();
+      let resolveFirst: (() => void) | undefined;
+      publisher.pruneRetainedTopics
+        .mockImplementationOnce(() => new Promise<void>((resolve) => { resolveFirst = resolve; }))
+        .mockResolvedValue(undefined);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: publisher as never, getIdSite: idSiteFor(installation) });
+      conn.start();
+      client.emit('connect');
+      await Promise.resolve();
+
+      // First prune (from connect) is in flight (its promise hasn't resolved).
+      // Force a second prune request via the private hook while the first is pending.
+      (conn as unknown as { onDiscoveryRefreshFire: () => void }).onDiscoveryRefreshFire();
+      await Promise.resolve();
+
+      // The second call must not have started executing its own collectRetained
+      // work concurrently — pruneRetainedTopics mock call count is 1 until the
+      // first resolves.
+      expect(publisher.pruneRetainedTopics).toHaveBeenCalledTimes(1);
+
+      resolveFirst?.();
+      // The chained `.then(fn).catch(...)` needs an extra microtask tick beyond
+      // what the brief's literal test asserted: resolving the awaited inner
+      // promise settles in one tick, then `.then(fn)` adopting it settles in a
+      // second, then `.catch()` passing the fulfillment through settles in a
+      // third — three ticks total, not two.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(publisher.pruneRetainedTopics).toHaveBeenCalledTimes(2);
     });
   });
 });

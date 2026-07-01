@@ -1,5 +1,5 @@
 import type { MqttClient } from 'mqtt';
-import type { VrmInstallation } from './types';
+import type { VrmInstallation, VrmServiceName } from './types';
 import { RollingMessageThrottle } from './RollingMessageThrottle';
 import { DiscoveryPublisher } from '../ha/DiscoveryPublisher';
 import { HaBrokerClient } from '../ha/HaBrokerClient';
@@ -7,10 +7,11 @@ import { parseVrmTopic, routeFromVrm } from '../ha/MessageRouter';
 import { VrmBrokerPool } from './VrmBrokerPool';
 import { AggregateProcessor, type AggregateRule } from './AggregateProcessor';
 import { SERVICE_ENTITY_DEFS, CUSTOM_ENTITY_DEFS } from '../ha/entityDefs';
-import { getObservedPaths } from '../ha/observedPaths';
+import { getSubscribePaths } from '../ha/observedPaths';
 import { logger } from '../logger';
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
+const DISCOVERY_REFRESH_DEBOUNCE_MS = 2_000;
 const SUPPRESS_REPUBLISH = JSON.stringify({ 'keepalive-options': ['suppress-republish'] });
 
 const POSSIBLE_PHASE_INDICES = ['1', '2', '3'] as const;
@@ -39,41 +40,35 @@ function expandAggregateSourcePaths(templates: readonly string[]): string[] {
   return [...expanded].sort();
 }
 
-/**
- * Build the set of paths that the bridge forwards to HA. A path is forwarded
- * if and only if:
- *   - it is the `path` of a forward: true normal entity (template-expanded
- *     to L-phase indices), OR
- *   - it is the `path` of a forward: true custom aggregate (template-expanded
- *     the same way).
- *
- * Note: this is the set of HA-side topics we publish on, derived from entity
- * `path`s. It is NOT the same as `getObservedPaths()` — that returns the
- * VRM-side topics we subscribe to (which also includes aggregate sources).
- */
-function computeForwardPaths(): ReadonlySet<string> {
+function computeForwardPaths(): ReadonlyMap<VrmServiceName, ReadonlySet<string>> {
   const indices = ['1', '2', '3'] as const;
   const expand = (template: string): string[] =>
     template.includes('{n}')
       ? indices.map((n) => template.replace('{n}', n))
       : [template];
-  const set = new Set<string>();
-  for (const def of SERVICE_ENTITY_DEFS.system ?? []) {
-    if (!def.forward) continue;
-    for (const p of expand(def.path)) set.add(p);
+  const map = new Map<VrmServiceName, Set<string>>();
+  for (const [service, defs] of Object.entries(SERVICE_ENTITY_DEFS) as [VrmServiceName, typeof SERVICE_ENTITY_DEFS[VrmServiceName]][]) {
+    const set = new Set<string>();
+    for (const def of defs ?? []) {
+      if (!def.forward) continue;
+      for (const p of expand(def.path)) set.add(p);
+    }
+    if (service === 'system') {
+      for (const agg of CUSTOM_ENTITY_DEFS.aggregate) {
+        if (!agg.forward) continue;
+        for (const p of expand(agg.path)) set.add(p);
+      }
+    }
+    map.set(service, set);
   }
-  for (const agg of CUSTOM_ENTITY_DEFS.aggregate) {
-    if (!agg.forward) continue;
-    for (const p of expand(agg.path)) set.add(p);
-  }
-  return set;
+  return map;
 }
 
 export interface MqttBridgeConnectionOptions {
   installation: VrmInstallation;
   pool: VrmBrokerPool;
   ha: HaBrokerClient;
-  publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics'>;
+  publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics' | 'refreshInstallationDiscovery'>;
   /** Throttle flush interval in ms. 0 = bypass (publish every message directly). Default 500. */
   throttleIntervalMs?: number;
   /** Shared global throttle across all installations. If provided, throttleIntervalMs is ignored. */
@@ -89,7 +84,7 @@ export class MqttBridgeConnection {
   private client: MqttClient | null = null;
   private readonly pool: VrmBrokerPool;
   private readonly ha: HaBrokerClient;
-  private readonly publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics'>;
+  private readonly publisher: Pick<DiscoveryPublisher, 'publishAvailability' | 'publishInstallation' | 'pruneRetainedTopics' | 'refreshInstallationDiscovery'>;
   private readonly throttle: RollingMessageThrottle;
   private readonly getIdSite: (brokerPortalId: string) => number | undefined;
   private readonly subscribeTopics: string[];
@@ -98,10 +93,12 @@ export class MqttBridgeConnection {
   /** Paths the bridge forwards to HA (verbatim VRM message → vrm/{idSite}/...).
    *  Built once at construction from SERVICE_ENTITY_DEFS + CUSTOM_ENTITY_DEFS.
    *  Only paths with forward: true end up here. */
-  private readonly forwardPaths: ReadonlySet<string>;
+  private readonly forwardPaths: ReadonlyMap<VrmServiceName, ReadonlySet<string>>;
   private readonly offlineTimeoutMs: number;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private staleTimer: ReturnType<typeof setTimeout> | null = null;
+  private discoveryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private pruneChain: Promise<void> = Promise.resolve();
   private isFirstKeepalive = true;
   /** True between the moment the staleness watchdog (or transport offline) publishes
    *  availability=offline and the moment a forwarded message republishes
@@ -111,6 +108,12 @@ export class MqttBridgeConnection {
   /** HA-side topics this connection has forwarded; cleared on stop() so the broker
    *  doesn't keep the old installation's last value retained. */
   private readonly publishedStateTopics = new Set<string>();
+  /** (service, instance) pairs that have sent forwarded traffic. system/platform
+   *  are seeded with instance '0' at construction; all others discovered dynamically. */
+  private readonly observedInstances: Map<VrmServiceName, Set<string>> = new Map([
+    ['system', new Set(['0'])],
+    ['platform', new Set(['0'])],
+  ]);
 
   // Pre-bound so client.off() can remove the exact same reference
   private readonly boundHandleConnect: () => void;
@@ -167,12 +170,29 @@ export class MqttBridgeConnection {
       clearTimeout(this.staleTimer);
       this.staleTimer = null;
     }
+    if (this.discoveryRefreshTimer !== null) {
+      clearTimeout(this.discoveryRefreshTimer);
+      this.discoveryRefreshTimer = null;
+    }
     this.isStale = false;
     this.throttle.flush();
     // Drop our shard's map entry entirely (not just its contents) so a
     // removed/replaced installation doesn't leak an empty entry into the
     // shared throttle forever.
     this.throttle.removeShard(String(this.installation.idSite));
+
+    // Detach listeners whose handlers could re-arm state stop() just cleared
+    // (message: re-arms staleTimer/discoveryRefreshTimer, refills the throttle
+    // shard; connect: re-arms keepaliveTimer/staleTimer, re-subscribes,
+    // re-publishes) before draining the prune chain, so in-flight MQTT events
+    // during the drain can't undo this teardown.
+    this.client?.off('message', this.boundHandleMessage);
+    this.client?.off('connect', this.boundHandleConnect);
+
+    // Drain any in-flight prune (from a connect-time or debounced discovery
+    // refresh run) before tearing down further, so a late prune-triggered
+    // publish can't fire after publishedStateTopics has already been cleared.
+    await this.pruneChain;
 
     // Clear retained state values on the HA broker so the old installation's last
     // values don't linger after teardown.
@@ -185,8 +205,6 @@ export class MqttBridgeConnection {
     // No client means start() was never called — nothing to clean up.
     if (!this.client) return;
 
-    this.client.off('connect', this.boundHandleConnect);
-    this.client.off('message', this.boundHandleMessage);
     this.client.off('error', this.boundHandleError);
     this.client.off('offline', this.boundHandleOffline);
     this.client.off('reconnect', this.boundHandleReconnect);
@@ -203,7 +221,13 @@ export class MqttBridgeConnection {
 
   private buildSubscribeTopics(): string[] {
     const id = this.installation.brokerPortalId;
-    return getObservedPaths().map((path) => `N/${id}/system/0/${path}`);
+    const topics: string[] = [];
+    for (const { service, instanceSegment, paths } of getSubscribePaths()) {
+      for (const path of paths) {
+        topics.push(`N/${id}/${service}/${instanceSegment}/${path}`);
+      }
+    }
+    return topics;
   }
 
   private handleConnect(): void {
@@ -219,15 +243,13 @@ export class MqttBridgeConnection {
       }
     });
 
-    this.publisher.publishInstallation(this.installation.idSite, this.installation.name);
+    this.publisher.publishInstallation(this.installation.idSite, this.installation.name, this.observedInstances);
     this.publisher.publishAvailability(this.installation.idSite, false);
     this.touch();
     // Fire-and-forget cleanup of stale retained topics from prior runs whose
     // entity defs are no longer in the forward set. Best-effort — failures
     // are logged at the wire-up site, never raised into handleConnect.
-    this.publisher.pruneRetainedTopics(this.installation.idSite).catch((err) => {
-      logger.error(`[HA] Prune failed for idSite=${this.installation.idSite}:`, err);
-    });
+    this.runPrune();
     this.sendKeepalive();
 
     if (this.keepaliveTimer !== null) clearInterval(this.keepaliveTimer);
@@ -273,6 +295,30 @@ export class MqttBridgeConnection {
     this.publisher.publishAvailability(this.installation.idSite, !this.isStale);
   }
 
+  private scheduleDiscoveryRefresh(): void {
+    if (this.discoveryRefreshTimer !== null) return;
+    this.discoveryRefreshTimer = setTimeout(() => {
+      this.discoveryRefreshTimer = null;
+      this.onDiscoveryRefreshFire();
+    }, DISCOVERY_REFRESH_DEBOUNCE_MS);
+  }
+
+  private onDiscoveryRefreshFire(): void {
+    this.publisher.refreshInstallationDiscovery(this.installation.idSite, this.installation.name, this.observedInstances);
+    this.runPrune();
+  }
+
+  /** Serializes prune calls onto a per-connection chain so the connect-time
+   *  prune and a later debounced re-run never race with different observedInstances
+   *  keep-set snapshots. */
+  private runPrune(): void {
+    this.pruneChain = this.pruneChain
+      .then(() => this.publisher.pruneRetainedTopics(this.installation.idSite, this.observedInstances))
+      .catch((err) => {
+        logger.error(`[HA] Prune failed for idSite=${this.installation.idSite}:`, err);
+      });
+  }
+
   publishToVrm(topic: string, payload: string): void {
     // No client means start() was never called — drop the command silently.
     if (!this.client) return;
@@ -295,6 +341,11 @@ export class MqttBridgeConnection {
     return this.installation.idSite;
   }
 
+  /** Snapshot of every (service, instance) pair this connection has forwarded traffic for. Read-only for callers. */
+  get observedInstancesSnapshot(): ReadonlyMap<VrmServiceName, ReadonlySet<string>> {
+    return this.observedInstances;
+  }
+
   private handleMessage(topic: string, payload: Buffer): void {
     if (!topic.startsWith(`N/${this.installation.brokerPortalId}/`)) return;
 
@@ -312,8 +363,19 @@ export class MqttBridgeConnection {
       haPublished = true;
     }
 
-    // HA forward — only for forward: true entities.
-    if (this.forwardPaths.has(parsed.path)) {
+    // HA forward — only for forward: true entities, scoped to the message's own service.
+    if (this.forwardPaths.get(parsed.service as VrmServiceName)?.has(parsed.path)) {
+      const service = parsed.service as VrmServiceName;
+      let instances = this.observedInstances.get(service);
+      if (!instances) {
+        instances = new Set<string>();
+        this.observedInstances.set(service, instances);
+      }
+      if (!instances.has(parsed.instance)) {
+        instances.add(parsed.instance);
+        this.scheduleDiscoveryRefresh();
+      }
+
       const out = routeFromVrm(topic, str, this.getIdSite);
       for (const msg of out) {
         this.publishedStateTopics.add(msg.topic);
@@ -331,13 +393,14 @@ export class MqttBridgeConnection {
   /**
    * Build an AggregateProcessor from CUSTOM_ENTITY_DEFS.aggregate.
    * Only forward: true aggregates are wired up — non-forward aggregates
-   * are still subscribed (their sources are in getObservedPaths) but the
+   * are still subscribed (their sources are in getSubscribePaths) but the
    * processor never produces output for them.
    *
-   * Source-path templates are expanded using the same L-phase indices
-   * that getObservedPaths() uses for subscription. Literal templates are
-   * kept as-is. The processor's observed-sources set then narrows the sum
-   * to whichever phases actually report on this installation.
+   * Source-path templates are expanded to the concrete L-phase indices
+   * (1/2/3) that actually arrive on the bus; the subscription itself uses a
+   * `+` wildcard for those segments (see getSubscribePaths). Literal
+   * templates are kept as-is. The processor's observed-sources set then
+   * narrows the sum to whichever phases actually report on this installation.
    */
   private buildAggregator(sourceExpiryMs: number): AggregateProcessor {
     const rules: AggregateRule[] = [];
@@ -363,7 +426,7 @@ export class MqttBridgeConnection {
   updateName(newName: string): void {
     if (this.installation.name === newName) return;
     this.installation.name = newName;
-    this.publisher.publishInstallation(this.installation.idSite, newName);
+    this.publisher.publishInstallation(this.installation.idSite, newName, this.observedInstances);
   }
 
   private handleError(err: Error): void {

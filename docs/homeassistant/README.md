@@ -22,9 +22,9 @@
 9. Copy `templates/vrm_installation_list.yaml` into a `templates/` folder next to your `configuration.yaml`.
 10. Append `configuration.yaml` with the contents of `configuration.yaml` in this folder. It does two things:
     - `!include_dir_merge_list`s the `templates/` folder
-    - excludes `sensor.vrm_installations` from the recorder (it updates every 30 s; without this the DB fills up)
+    - excludes `sensor.vrm_installations` from the recorder (it updates every 5 s; without this the DB fills up)
 11. Restart HA.
 
 ## Verify
 
-`sensor.vrm_installations` exists in Developer Tools → States with a populated `installations` attribute. The dashboard card shows one row per installation and refreshes every 30 s.
+`sensor.vrm_installations` exists in Developer Tools → States with a populated `installations` attribute. The dashboard card shows one row per installation and refreshes every 5 s.

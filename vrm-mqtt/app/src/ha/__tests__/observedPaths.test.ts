@@ -1,111 +1,163 @@
-import { getCurrentlyForwardedTopics, getObservedPaths } from '../observedPaths';
+import { SERVICE_ENTITY_DEFS } from '../entityDefs';
+import { getCurrentlyForwardedTopics, getObservedPaths, getSubscribePaths } from '../observedPaths';
 
 describe('getObservedPaths', () => {
-  it('returns a sorted array', () => {
+  it('returns one entry per service present in SERVICE_ENTITY_DEFS', () => {
     const result = getObservedPaths();
-    const sorted = [...result].sort();
-    expect(result).toEqual(sorted);
+    const services = result.map(s => s.service).sort();
+    expect(services).toEqual(Object.keys(SERVICE_ENTITY_DEFS).sort());
   });
 
-  it('contains no duplicates', () => {
+  it('system and platform use instanceSegment "0"', () => {
     const result = getObservedPaths();
-    expect(new Set(result).size).toBe(result.length);
+    expect(result.find(s => s.service === 'system')!.instanceSegment).toBe('0');
+    expect(result.find(s => s.service === 'platform')!.instanceSegment).toBe('0');
   });
 
-  it('expands {n} to 1, 2, 3 for normal-entity path templates', () => {
+  it('every other service uses instanceSegment "+"', () => {
     const result = getObservedPaths();
-    // Ac/Grid/L{n}/Power is the template for the per-phase power entity.
-    // As an aggregate source for custom/aggregate/Ac/Grid/Power it must be in the set.
-    expect(result).toContain('Ac/Grid/L1/Power');
-    expect(result).toContain('Ac/Grid/L2/Power');
-    expect(result).toContain('Ac/Grid/L3/Power');
+    expect(result.find(s => s.service === 'vebus')!.instanceSegment).toBe('+');
   });
 
-  it('includes forward: true normal entities as literal paths', () => {
-    const result = getObservedPaths();
-    // After Task 1, Dc/Battery/Soc, Voltage, State all have forward: true.
-    expect(result).toContain('Dc/Battery/Soc');
-    expect(result).toContain('Dc/Battery/Voltage');
-    expect(result).toContain('Dc/Battery/State');
+  it('system paths are sorted and deduplicated', () => {
+    const systemPaths = getObservedPaths().find(s => s.service === 'system')!.paths;
+    expect([...systemPaths].sort()).toEqual(systemPaths);
+    expect(new Set(systemPaths).size).toBe(systemPaths.length);
   });
 
-  it('includes literal aggregate sources regardless of the aggregate forward flag', () => {
-    const result = getObservedPaths();
-    // Dc/Pv/Power is a literal source for custom/aggregate/Pv/Power.
-    expect(result).toContain('Dc/Pv/Power');
+  it('system paths expand {n} to 1, 2, 3 for aggregate-source templates', () => {
+    const systemPaths = getObservedPaths().find(s => s.service === 'system')!.paths;
+    expect(systemPaths).toContain('Ac/Grid/L1/Power');
+    expect(systemPaths).toContain('Ac/Grid/L2/Power');
+    expect(systemPaths).toContain('Ac/Grid/L3/Power');
   });
 
-  it('does NOT include paths for normal entities without forward: true', () => {
-    const result = getObservedPaths();
-    // Ac/Grid/L{n}/Current is defined but NOT forward: true and not an aggregate source.
-    expect(result).not.toContain('Ac/Grid/L1/Current');
-    expect(result).not.toContain('Ac/Grid/L2/Current');
-    expect(result).not.toContain('Ac/Grid/L3/Current');
+  it('system paths include forward: true normal entities as literal paths', () => {
+    const systemPaths = getObservedPaths().find(s => s.service === 'system')!.paths;
+    expect(systemPaths).toContain('Dc/Battery/Soc');
+    expect(systemPaths).toContain('Dc/Battery/Voltage');
+    expect(systemPaths).toContain('Dc/Battery/State');
   });
 
-  it('does NOT include aggregate targets (they are HA-published topics, not bus-side paths)', () => {
-    const result = getObservedPaths();
-    // The aggregate targets are NOT observed paths on the bus — they are HA-published topics.
-    // getObservedPaths returns bus-side paths only.
-    expect(result).not.toContain('Ac/Grid/Power');
-    expect(result).not.toContain('Pv/Power');
+  it('system paths include literal aggregate sources regardless of forward flag', () => {
+    const systemPaths = getObservedPaths().find(s => s.service === 'system')!.paths;
+    expect(systemPaths).toContain('Dc/Pv/Power');
   });
 
-  it('does not include non-system-service entities', () => {
-    const result = getObservedPaths();
-    // vebus / platform entities are not system/0 — they must not leak in.
-    // Ac/Out/L{n}/P is a vebus entity, not a system entity.
-    expect(result).not.toContain('Ac/Out/L1/P');
+  it('system paths do NOT include normal entities without forward: true that are not aggregate sources', () => {
+    const systemPaths = getObservedPaths().find(s => s.service === 'system')!.paths;
+    expect(systemPaths).not.toContain('Ac/Grid/L1/Current');
+  });
+
+  it('system paths do NOT include aggregate targets (HA-published, not bus-side)', () => {
+    const systemPaths = getObservedPaths().find(s => s.service === 'system')!.paths;
+    expect(systemPaths).not.toContain('Ac/Grid/Power');
+    expect(systemPaths).not.toContain('Pv/Power');
+  });
+
+  it('non-system services do not fold in system aggregate sources', () => {
+    // vebus has zero forward:true entities today, so its paths list is empty —
+    // it must NOT inherit system's aggregate-source paths.
+    const vebusPaths = getObservedPaths().find(s => s.service === 'vebus')!.paths;
+    expect(vebusPaths).toEqual([]);
+  });
+});
+
+describe('getSubscribePaths', () => {
+  it('returns one entry per service present in SERVICE_ENTITY_DEFS', () => {
+    const result = getSubscribePaths();
+    const services = result.map(s => s.service).sort();
+    expect(services).toEqual(Object.keys(SERVICE_ENTITY_DEFS).sort());
+  });
+
+  it('system and platform use instanceSegment "0"', () => {
+    const result = getSubscribePaths();
+    expect(result.find(s => s.service === 'system')!.instanceSegment).toBe('0');
+    expect(result.find(s => s.service === 'platform')!.instanceSegment).toBe('0');
+  });
+
+  it('every other service uses instanceSegment "+"', () => {
+    const result = getSubscribePaths();
+    expect(result.find(s => s.service === 'vebus')!.instanceSegment).toBe('+');
+  });
+
+  it('system paths collapse {n} aggregate-source templates to a single "+" wildcard', () => {
+    const systemPaths = getSubscribePaths().find(s => s.service === 'system')!.paths;
+    expect(systemPaths).toContain('Ac/Grid/+/Power');
+    expect(systemPaths).not.toContain('Ac/Grid/L1/Power');
+    expect(systemPaths).not.toContain('Ac/Grid/L2/Power');
+    expect(systemPaths).not.toContain('Ac/Grid/L3/Power');
+  });
+
+  it('system paths include forward: true normal entities as literal paths', () => {
+    const systemPaths = getSubscribePaths().find(s => s.service === 'system')!.paths;
+    expect(systemPaths).toContain('Dc/Battery/Soc');
+    expect(systemPaths).toContain('Dc/Battery/Voltage');
+    expect(systemPaths).toContain('Dc/Battery/State');
+  });
+
+  it('system paths include literal aggregate sources unchanged', () => {
+    const systemPaths = getSubscribePaths().find(s => s.service === 'system')!.paths;
+    expect(systemPaths).toContain('Dc/Pv/Power');
+  });
+
+  it('system paths are sorted and deduplicated', () => {
+    const systemPaths = getSubscribePaths().find(s => s.service === 'system')!.paths;
+    expect([...systemPaths].sort()).toEqual(systemPaths);
+    expect(new Set(systemPaths).size).toBe(systemPaths.length);
   });
 });
 
 describe('getCurrentlyForwardedTopics', () => {
   const ID_SITE = 42;
+  const SYSTEM_PLATFORM_ONLY = new Map([
+    ['system', new Set(['0'])],
+    ['platform', new Set(['0'])],
+  ]) as ReadonlyMap<import('../../vrm/types').VrmServiceName, ReadonlySet<string>>;
 
   it('always contains vrm/{idSite}/availability', () => {
-    const topics = getCurrentlyForwardedTopics(ID_SITE);
+    const topics = getCurrentlyForwardedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
     expect(topics).toContain(`vrm/${ID_SITE}/availability`);
   });
 
   it('contains vrm/{idSite}/system/0/{path} for every forward: true system entity', () => {
-    const topics = getCurrentlyForwardedTopics(ID_SITE);
-    // Dc/Battery/Soc has forward: true in entityDefs.ts.
+    const topics = getCurrentlyForwardedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
     expect(topics).toContain(`vrm/${ID_SITE}/system/0/Dc/Battery/Soc`);
   });
 
   it('currently has no forward: true template entities — template branch is code-review covered', () => {
-    const topics = getCurrentlyForwardedTopics(ID_SITE);
-    // Today every `forward: true` system entity in entityDefs.ts is a literal
-    // path (Dc/Battery/Soc, Dc/Battery/Voltage, Dc/Battery/State). No system
-    // template entity (paths containing {n}) is `forward: true`. The helper's
-    // expandTemplate-based inner loop is therefore unreachable through the
-    // current registry but stays in place for any future forward: true
-    // template entity. This test will flip to a positive assertion if/when
-    // a template entity becomes forward: true.
+    const topics = getCurrentlyForwardedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
     expect(topics).not.toContain(`vrm/${ID_SITE}/system/0/Ac/Grid/L1/Power`);
   });
 
   it('contains vrm/{idSite}/custom/aggregate/{path} for every forward: true aggregate', () => {
-    const topics = getCurrentlyForwardedTopics(ID_SITE);
+    const topics = getCurrentlyForwardedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
     expect(topics).toContain(`vrm/${ID_SITE}/custom/aggregate/Ac/Consumption/Power`);
     expect(topics).toContain(`vrm/${ID_SITE}/custom/aggregate/Ac/Grid/Power`);
   });
 
   it('does NOT contain forward: false / unflagged entity paths', () => {
-    const topics = getCurrentlyForwardedTopics(ID_SITE);
-    // Dc/Battery/Current has no forward flag (defaults to false) in entityDefs.ts.
+    const topics = getCurrentlyForwardedTopics(ID_SITE, SYSTEM_PLATFORM_ONLY);
     expect(topics).not.toContain(`vrm/${ID_SITE}/system/0/Dc/Battery/Current`);
   });
 
-  it('does NOT contain vebus / platform entity paths (different service)', () => {
-    const topics = getCurrentlyForwardedTopics(ID_SITE);
-    // Ac/Out/L1/P is a vebus entity — must not leak into system/0.
-    expect(topics).not.toContain(`vrm/${ID_SITE}/system/0/Ac/Out/L1/P`);
+  it('includes topics for a dynamically-observed service instance', () => {
+    // Prove the new per-service loop actually emits topics for a non-system
+    // service once observedInstances says an instance is known — even though
+    // vebus has no forward:true entity today (so the set of paths is empty,
+    // this at minimum must not throw and must not silently drop system's topics).
+    const withVebus = new Map([
+      ['system', new Set(['0'])],
+      ['platform', new Set(['0'])],
+      ['vebus', new Set(['0'])],
+    ]) as ReadonlyMap<import('../../vrm/types').VrmServiceName, ReadonlySet<string>>;
+    const topics = getCurrentlyForwardedTopics(ID_SITE, withVebus);
+    expect(topics).toContain(`vrm/${ID_SITE}/system/0/Dc/Battery/Soc`);
   });
 
   it('returns disjoint sets for different idSite values', () => {
-    const a = getCurrentlyForwardedTopics(1);
-    const b = getCurrentlyForwardedTopics(2);
+    const a = getCurrentlyForwardedTopics(1, SYSTEM_PLATFORM_ONLY);
+    const b = getCurrentlyForwardedTopics(2, SYSTEM_PLATFORM_ONLY);
     for (const t of a) {
       expect(b).not.toContain(t);
     }

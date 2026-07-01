@@ -54,14 +54,14 @@ describe('matchTemplateIndices', () => {
 // ── buildDiscoveryConfigs — common shape ─────────────────────────────────────
 
 describe('buildDiscoveryConfigs', () => {
-  describe('returns empty array for unknown services', () => {
-    it('platform has no entity defs', () => {
+  describe('service with entity defs but no forward: true entities', () => {
+    it('platform yields no configs (none of its entities are forward: true)', () => {
       expect(buildDiscoveryConfigs(ID_SITE, 'platform', 0, [])).toEqual([]);
     });
   });
 
   describe('index never observed', () => {
-    it('emits nothing when the index never appears in observed paths', () => {
+    it('emits nothing when the index never appears in observed paths (charger is now a wired-in service with zero forward: true entities, same reasoning as platform above)', () => {
       const configs = buildDiscoveryConfigs(ID_SITE, 'charger', 30, ['Dc/0/Current']);
       expect(configs.find(c => c.unique_id.includes('dc_0_voltage'))).toBeUndefined();
     });
