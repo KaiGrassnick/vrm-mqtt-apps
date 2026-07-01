@@ -89,3 +89,12 @@
         {% else %}
           0
         {% endif %}
+
+    - name: VRM Installations Battery Power
+      unique_id: vrm_installations_battery_power
+      device_class: power
+      unit_of_measurement: W
+      state_class: measurement
+      icon: mdi:battery-charging
+      state: >-
+        {{ states | selectattr('entity_id', 'match', '^sensor\.vrm_.+_system_0_dc_battery_power$') | map(attribute='state') | map('float', 0) | sum | round(0) }}
