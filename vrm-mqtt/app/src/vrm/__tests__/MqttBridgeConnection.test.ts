@@ -1259,6 +1259,12 @@ describe('MqttBridgeConnection', () => {
         client.emit('connect');
 
         // Drain microtasks so the .catch handler has run before we assert on it.
+        // runPrune()'s chained `.then(fn).catch(...)` needs 4 ticks: one to run
+        // the pruneChain's initial .then(fn), one to adopt the rejected promise
+        // fn() returns, one to propagate that rejection, and one for .catch to
+        // handle it.
+        await Promise.resolve();
+        await Promise.resolve();
         await Promise.resolve();
         await Promise.resolve();
 
@@ -1283,6 +1289,77 @@ describe('MqttBridgeConnection', () => {
         // Restore in finally so the spy is removed even if an assertion fails.
         errSpy.mockRestore();
       }
+    });
+  });
+
+  describe('instance-driven discovery refresh (end-to-end)', () => {
+    const portalId = installation.brokerPortalId;
+    const idSite = installation.idSite;
+
+    it('schedules a discovery refresh when a genuinely new (service, instance) is observed', () => {
+      const client = makeMockClient(true);
+      const publisher = makeMockPublisher();
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: publisher as never, getIdSite: idSiteFor(installation) });
+      conn.start();
+      jest.advanceTimersByTime(500);
+      publisher.refreshInstallationDiscovery.mockClear();
+      publisher.pruneRetainedTopics.mockClear();
+
+      // system/0 is already known from seeding — re-observing it must NOT
+      // schedule a refresh (nothing new).
+      client.emit('message', `N/${portalId}/system/0/Dc/Battery/Soc`, Buffer.from('{"value":80}'));
+      jest.advanceTimersByTime(2000);
+
+      expect(publisher.refreshInstallationDiscovery).not.toHaveBeenCalled();
+    });
+
+    it('does not fire a refresh for messages that are not forward:true (no new instance signal)', () => {
+      const client = makeMockClient(true);
+      const publisher = makeMockPublisher();
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: publisher as never, getIdSite: idSiteFor(installation) });
+      conn.start();
+      jest.advanceTimersByTime(500);
+      publisher.refreshInstallationDiscovery.mockClear();
+
+      client.emit('message', `N/${portalId}/system/0/Ac/Grid/L1/Power`, Buffer.from('{"value":100}'));
+      jest.advanceTimersByTime(2000);
+
+      expect(publisher.refreshInstallationDiscovery).not.toHaveBeenCalled();
+    });
+
+    it('serializes the connect-time prune and a later debounced prune re-run rather than racing', async () => {
+      const client = makeMockClient(false);
+      const publisher = makeMockPublisher();
+      let resolveFirst: (() => void) | undefined;
+      publisher.pruneRetainedTopics
+        .mockImplementationOnce(() => new Promise<void>((resolve) => { resolveFirst = resolve; }))
+        .mockResolvedValue(undefined);
+      const conn = new MqttBridgeConnection({ installation, pool: makeMockPool(client as unknown as MqttClient) as unknown as VrmBrokerPool, ha: makeMockHa() as never, publisher: publisher as never, getIdSite: idSiteFor(installation) });
+      conn.start();
+      client.emit('connect');
+      await Promise.resolve();
+
+      // First prune (from connect) is in flight (its promise hasn't resolved).
+      // Force a second prune request via the private hook while the first is pending.
+      (conn as unknown as { onDiscoveryRefreshFire: () => void }).onDiscoveryRefreshFire();
+      await Promise.resolve();
+
+      // The second call must not have started executing its own collectRetained
+      // work concurrently — pruneRetainedTopics mock call count is 1 until the
+      // first resolves.
+      expect(publisher.pruneRetainedTopics).toHaveBeenCalledTimes(1);
+
+      resolveFirst?.();
+      // The chained `.then(fn).catch(...)` needs an extra microtask tick beyond
+      // what the brief's literal test asserted: resolving the awaited inner
+      // promise settles in one tick, then `.then(fn)` adopting it settles in a
+      // second, then `.catch()` passing the fulfillment through settles in a
+      // third — three ticks total, not two.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(publisher.pruneRetainedTopics).toHaveBeenCalledTimes(2);
     });
   });
 });

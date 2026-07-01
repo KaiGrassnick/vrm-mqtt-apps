@@ -98,6 +98,7 @@ export class MqttBridgeConnection {
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private staleTimer: ReturnType<typeof setTimeout> | null = null;
   private discoveryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private pruneChain: Promise<void> = Promise.resolve();
   private isFirstKeepalive = true;
   /** True between the moment the staleness watchdog (or transport offline) publishes
    *  availability=offline and the moment a forwarded message republishes
@@ -237,9 +238,7 @@ export class MqttBridgeConnection {
     // Fire-and-forget cleanup of stale retained topics from prior runs whose
     // entity defs are no longer in the forward set. Best-effort — failures
     // are logged at the wire-up site, never raised into handleConnect.
-    this.publisher.pruneRetainedTopics(this.installation.idSite, this.observedInstances).catch((err) => {
-      logger.error(`[HA] Prune failed for idSite=${this.installation.idSite}:`, err);
-    });
+    this.runPrune();
     this.sendKeepalive();
 
     if (this.keepaliveTimer !== null) clearInterval(this.keepaliveTimer);
@@ -294,7 +293,19 @@ export class MqttBridgeConnection {
   }
 
   private onDiscoveryRefreshFire(): void {
-    // Task 7 replaces this with the real refresh + prune re-run.
+    this.publisher.refreshInstallationDiscovery(this.installation.idSite, this.installation.name, this.observedInstances);
+    this.runPrune();
+  }
+
+  /** Serializes prune calls onto a per-connection chain so the connect-time
+   *  prune and a later debounced re-run never race with different observedInstances
+   *  keep-set snapshots. */
+  private runPrune(): void {
+    this.pruneChain = this.pruneChain
+      .then(() => this.publisher.pruneRetainedTopics(this.installation.idSite, this.observedInstances))
+      .catch((err) => {
+        logger.error(`[HA] Prune failed for idSite=${this.installation.idSite}:`, err);
+      });
   }
 
   publishToVrm(topic: string, payload: string): void {
@@ -349,8 +360,10 @@ export class MqttBridgeConnection {
         instances = new Set<string>();
         this.observedInstances.set(service, instances);
       }
-      instances.add(parsed.instance);
-      // (Task 4 hooks a "was this new?" signal in here.)
+      if (!instances.has(parsed.instance)) {
+        instances.add(parsed.instance);
+        this.scheduleDiscoveryRefresh();
+      }
 
       const out = routeFromVrm(topic, str, this.getIdSite);
       for (const msg of out) {
